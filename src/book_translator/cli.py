@@ -9,6 +9,8 @@ from book_translator import workspace
 from book_translator.config import DEFAULT_CAP_USD, VARIETIES
 from book_translator.epub import open_epub
 from book_translator.estimate import estimate
+from book_translator.llm import Adapter
+from book_translator.run import run
 from book_translator.structure import Book
 
 
@@ -21,14 +23,20 @@ def _parser() -> argparse.ArgumentParser:
     init.add_argument("--target", default="es", help="target language (default: es)")
     init.add_argument("--cap", type=float, default=DEFAULT_CAP_USD, help="spending cap in USD")
     init.add_argument("--workspace", type=Path, help="workspace folder (default: ./<epub name>)")
+    run_cmd = sub.add_parser("run", help="advance the book through its stages (resumable)")
+    run_cmd.add_argument("workspace", type=Path)
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def main(argv: Sequence[str] | None = None, *, adapter: Adapter | None = None) -> None:
     parser = _parser()
     args = parser.parse_args(argv)
     if args.command == "init":
         _init(args)
+    elif args.command == "run":
+        if adapter is None:
+            sys.exit("error: no LLM adapter is configured yet")
+        run(args.workspace, adapter)
     else:
         parser.print_help()
 
