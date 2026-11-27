@@ -47,7 +47,9 @@ def _raw_pr(**over: Any) -> dict[str, Any]:
     return pr
 
 
-def _check_pages(names: tuple[str, ...] = REQUIRED_CHECKS, conclusion: str = "success") -> dict[str, Any]:
+def _check_pages(
+    names: tuple[str, ...] = REQUIRED_CHECKS, conclusion: str = "success"
+) -> dict[str, Any]:
     runs = [
         {
             "id": i,
