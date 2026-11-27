@@ -3,12 +3,24 @@ on:
   push:
     branches: [main]
   pull_request:
+
+# Least privilege by default; each job asks for what it needs (ADR 0005).
+permissions: {}
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # uv is pinned by version and checksum so the runtime download can't bypass pinning.
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.11.21"
+          checksum: "8c88519b0ef0af9801fcdee419bbb12116bd9e6b18e162ae093c932d8b264050"
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
