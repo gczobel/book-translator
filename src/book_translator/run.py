@@ -7,12 +7,13 @@ units of work there too, so a second run does only what is left.
 import sqlite3
 from pathlib import Path
 
-from book_translator.bible import Bible
+from book_translator.bible import Bible, Part2
 from book_translator.budget import Budget
 from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
 from book_translator.llm import LLM, Adapter
 from book_translator.search import Search
+from book_translator.stages.complete import completion_request, merged
 from book_translator.stages.consolidate import consolidation_request
 from book_translator.stages.extract import Extraction, extraction_request
 from book_translator.stages.research import book_title, research
@@ -41,6 +42,7 @@ def run(workspace: Path, adapter: Adapter, search: Search | None = None) -> None
         llm = LLM(adapter, workspace / DB_NAME, budget=Budget(workspace / DB_NAME))
         _extraction(db, workspace, llm)
         _consolidation(db, llm)
+        _completion(db, llm)
     finally:
         db.close()
 
@@ -93,3 +95,15 @@ def _consolidation(db: sqlite3.Connection, llm: LLM) -> None:
         db.execute("delete from bible")
         db.execute("insert into bible values (?)", (result.output.model_dump_json(),))
     _set_status(db, "consolidation", "done")
+
+
+def _completion(db: sqlite3.Connection, llm: LLM) -> None:
+    if _status(db, "completion") == "done":
+        return
+    _set_status(db, "completion", "running")
+    part1 = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
+    result = llm.call(completion_request(STAGE_MODELS["consolidation"], db, part1), Part2)
+    with db:
+        db.execute("delete from bible")
+        db.execute("insert into bible values (?)", (merged(part1, result.output).model_dump_json(),))
+    _set_status(db, "completion", "done")

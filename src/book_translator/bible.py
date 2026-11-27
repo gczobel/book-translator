@@ -43,7 +43,24 @@ class VoiceCard(BaseModel):
     sample_lines: list[str] = []
 
 
-class Bible(BaseModel):
+class AddressRule(BaseModel):
+    """How one character addresses another (directed), over a range of chapters (1-based,
+    inclusive, open-ended when absent)."""
+
+    speaker: str
+    addressee: str
+    form: Literal["tú", "usted"]
+    from_chapter: int | None = None
+    to_chapter: int | None = None
+
+
+class Part2(BaseModel):
+    """The second half of the bible, written once part 1 is known."""
+
+    address_grid: list[AddressRule] = []
+
+
+class Bible(Part2):
     profile: Profile
     style: StyleSheet
     cast: list[CastMember]
