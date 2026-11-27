@@ -20,8 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
-OWNER_ID = 754466  # gczobel
-DEPENDABOT_ID = 49699333  # dependabot[bot]
+from ghapi.identities import DEPENDABOT_ID, OWNER_ID
 
 # Actions that handle secrets: bumping them always needs the owner (ADR 0005, "Pinning").
 SECRET_HANDLING_ACTIONS = frozenset(

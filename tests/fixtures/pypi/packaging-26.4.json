@@ -1,0 +1,20 @@
+{
+  "info": {
+    "name": "packaging",
+    "version": "26.4"
+  },
+  "urls": [
+    {
+      "filename": "packaging-26.4-py3-none-any.whl",
+      "packagetype": "bdist_wheel",
+      "upload_time_iso_8601": "2026-11-23T21:44:09.531657Z",
+      "yanked": false
+    },
+    {
+      "filename": "packaging-26.4.tar.gz",
+      "packagetype": "sdist",
+      "upload_time_iso_8601": "2026-11-23T21:44:11.152574Z",
+      "yanked": false
+    }
+  ]
+}

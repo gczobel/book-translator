@@ -1,0 +1,120 @@
+name: osv-scan
+
+# Daily OSV scan of uv.lock (ticket #18, ADR 0005 "Vulnerabilities"). Nothing vulnerable
+# waits silently in the lock file: the decision of what escalates lives in
+# .github/scripts/osvscan/core.py (tested); this file only runs the scanner and routes the
+# verdict to the escalation action.
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+# Least privilege by default; each job asks for what it needs (ADR 0005).
+permissions: {}
+
+concurrency:
+  group: osv-scan
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    permissions:
+      contents: read # a called workflow can't exceed its caller's permissions
+    uses: ./.github/workflows/pause.yml # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+
+  scan:
+    needs: [gate]
+    if: ${{ needs.gate.outputs.paused == 'false' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # to find the open Dependabot PRs
+    outputs:
+      vulnerable: ${{ steps.decide.outputs.vulnerable }}
+      scan_ok: ${{ steps.decide.outputs.scan_ok }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # osv-scanner is a downloaded binary, so it is pinned by version and checksum.
+      # The checksum is the release's own osv-scanner_SHA256SUMS entry for the linux_amd64 binary.
+      - name: Install osv-scanner
+        env:
+          OSV_SCANNER_VERSION: "2.7.1"
+          OSV_SCANNER_SHA256: "fb7dab19a8bd9bbe5c3189f09d4b7ee1820c9553a23bac202648a56efd2f6ee8"
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSLo osv-scanner "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SCANNER_SHA256}  osv-scanner" | sha256sum -c -
+          chmod +x osv-scanner
+      # Findings make the scanner exit 1; that is data for the next step, not a failure here.
+      - name: Scan uv.lock
+        run: |
+          set +e
+          "$RUNNER_TEMP/osv-scanner" scan source --lockfile uv.lock --format json > "$RUNNER_TEMP/osv.json"
+          echo "OSV_EXIT_CODE=$?" >> "$GITHUB_ENV"
+      - id: decide
+        run: python3 -m osvscan
+        env:
+          PYTHONPATH: .github/scripts
+          OSV_OUTPUT_FILE: ${{ runner.temp }}/osv.json
+          GH_TOKEN: ${{ github.token }}
+
+  escalate-vulnerable:
+    needs: [gate, scan]
+    if: ${{ needs.gate.outputs.paused == 'false' && needs.scan.outputs.vulnerable == 'true' }}
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+        with:
+          reason: vulnerability-found
+          key: osv-vulnerability
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
+
+  # The pause gate itself errored: paused is empty, which is not a genuine pause ('true'),
+  # so this is a failure to escalate. A real pause never reaches this job.
+  escalate-gate-failed:
+    needs: [gate]
+    if: ${{ always() && needs.gate.result == 'failure' }}
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+        with:
+          reason: workflow-failed
+          key: osv-gate-failed
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
+
+  # A scan that errored, could not be read, crashed or was cancelled rules nothing out.
+  escalate-failed:
+    needs: [gate, scan]
+    # Anything but a clean 'scan_ok' (error, crash, cancel) escalates; `||` is avoided on purpose
+    # because the pause audit only accepts a gate comparison joined by `&&`.
+    if: ${{ always() && needs.gate.outputs.paused == 'false' && needs.scan.outputs.scan_ok != 'true' }}
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+        with:
+          reason: vulnerability-scan-failed
+          key: osv-scan-failed
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}

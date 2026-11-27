@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from ghapi.identities import OWNER_ID
 from guard import rules
 from guard.collect import collect
 from guard.errors import GuardError
@@ -208,7 +209,7 @@ def test_run_fails_a_guarded_pr_by_a_stranger(capsys: pytest.CaptureFixture[str]
 
 
 def test_run_passes_a_guarded_pr_written_by_the_owner() -> None:
-    pr = _pr(user={"id": rules.OWNER_ID})
+    pr = _pr(user={"id": OWNER_ID})
     assert run(_env(), FakeApi(_routes([_file("AGENTS.md")], pr=pr))) == 0
 
 

@@ -54,6 +54,28 @@ def test_only_an_explicit_false_check_counts(condition: str) -> None:
     assert ungated_jobs(wf) == ["work"]
 
 
+def test_a_job_that_runs_only_when_the_gate_itself_failed_is_gated() -> None:
+    # A crashed gate is not a pause, so escalating it cannot defeat the switch.
+    cond = "${{ always() && needs.gate.result == 'failure' }}"
+    wf = {"jobs": {"gate": _gate(), "esc": {"needs": ["gate"], "if": cond}}}
+    assert ungated_jobs(wf) == []
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "${{ always() && needs.gate.result != 'success' }}",
+        "${{ always() && needs.gate.result == 'skipped' }}",
+        "${{ always() || needs.gate.result == 'failure' }}",
+        "${{ always() && needs.other.result == 'failure' }}",
+        "${{ needs.gate.result == 'failure' || true }}",
+    ],
+)
+def test_other_gate_result_checks_are_ungated(condition: str) -> None:
+    wf = {"jobs": {"gate": _gate(), "esc": {"needs": ["gate"], "if": condition}}}
+    assert ungated_jobs(wf) == ["esc"]
+
+
 def test_a_job_downstream_of_a_gated_job_is_skipped_with_it() -> None:
     wf = {
         "jobs": {
