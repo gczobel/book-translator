@@ -98,6 +98,8 @@ def evaluate(
     `judge` and `diagnose` are the optional LLM parts and need `adapter`; `comet` is an optional
     COMET scorer.
     """
+    if (judge or diagnose) and adapter is None:
+        raise EvaluateError("the judge and the diagnosis need an LLM adapter")
     database = workspace / DB_NAME
     db = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
     try:
@@ -120,8 +122,6 @@ def evaluate(
     views = _scene_views(workspace / SOURCE_NAME, ours, refs) if judge or comet is not None else []
     if comet is not None:
         report["comet"] = comet_scores(comet, views)
-    if (judge or diagnose) and adapter is None:
-        raise EvaluateError("the judge and the diagnosis need an LLM adapter")
     llm = LLM(adapter, database, budget=Budget(database)) if adapter is not None else None
     if judge and llm is not None:
         report["judge"] = judge_scenes(llm, STAGE_MODELS["judge"], views)
