@@ -5,12 +5,16 @@ back as the exact bytes read, so an identity round trip reproduces the source me
 member. Zip metadata (member order, compression, timestamps, attributes) is preserved too.
 """
 
+import posixpath
 import zipfile
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from urllib.parse import unquote
 
 from lxml import etree
+
+from book_translator.structure import Book, build_book
 
 _CONTAINER = "META-INF/container.xml"
 _XML_SUFFIXES = (".xhtml", ".html", ".htm", ".opf", ".ncx", ".xml")
@@ -59,6 +63,44 @@ class Epub:
             for ref in opf.iterfind(".//o:spine/o:itemref", ns)
             if (idref := ref.get("idref")) and str(idref) in hrefs
         ]
+
+    def book(self) -> Book:
+        """The book's structure: chapters, scenes, scene breaks and blocks."""
+        return build_book(self.spine(), self.read, self._nav_labels())
+
+    def _nav_labels(self) -> dict[tuple[str, str | None], str]:
+        """NCX entries as {(member, fragment or None): label}; empty if there is no NCX."""
+        opf = etree.fromstring(self.read(self._opf_path))
+        ns = {"o": "http://www.idpf.org/2007/opf"}
+        spine = opf.find(".//o:spine", ns)
+        toc_id = spine.get("toc") if spine is not None else None
+        base = PurePosixPath(self._opf_path).parent
+        ncx_path = next(
+            (
+                str(base / str(i.get("href")))
+                for i in opf.iterfind(".//o:manifest/o:item", ns)
+                if i.get("id") == toc_id and i.get("href")
+            ),
+            None,
+        )
+        if ncx_path is None or ncx_path not in self._by_name:
+            return {}
+        n = {"n": "http://www.daisy.org/z3986/2005/ncx/"}
+        labels: dict[tuple[str, str | None], str] = {}
+        for point in etree.fromstring(self.read(ncx_path)).iterfind(".//n:navPoint", n):
+            text = point.find("n:navLabel/n:text", n)
+            content = point.find("n:content", n)
+            if text is None or content is None or not content.get("src"):
+                continue
+            src, _, fragment = unquote(str(content.get("src"))).partition("#")
+            member = posixpath.normpath(posixpath.join(posixpath.dirname(ncx_path), src))
+            labels.setdefault(
+                (member, fragment or None),
+                " ".join(
+                    etree.tostring(text, method="text", encoding="unicode", with_tail=False).split()
+                ),
+            )
+        return labels
 
     def write(self, path: Path) -> None:
         """Write the archive to `path`."""
