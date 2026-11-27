@@ -116,11 +116,59 @@ ODD_1 = (
 )
 
 
-def write(name: str, files: dict[str, bytes | str]) -> None:
+def page(body: str) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">\n'
+        "<head><title>T</title></head>\n<body>\n" + body + "</body>\n</html>\n"
+    )
+
+
+# Scene breaks drawn as <hr> elements of different classes (and none).
+HR_1 = page(
+    '<h1>One</h1>\n<p>A1.</p>\n<p>A2.</p>\n<hr class="ornament"/>\n<p>B1.</p>\n'
+    '<hr/>\n<p>C1.</p>\n<hr class="x"/>\n'
+)
+HR_2 = page("<h1>Two</h1>\n<p>D1.</p>\n")
+
+# Scene breaks drawn as asterism paragraphs, empty spacer paragraphs and classed paragraphs.
+ASTERISM_1 = page(
+    "<h1>One</h1>\n<p>A1.</p>\n<p>* * *</p>\n<p>B1.</p>\n<p>&#160;</p>\n<p>C1.</p>\n"
+    '<p class="sb"></p>\n<p>D1.</p>\n<p class="scenebreak"><img src="images/dot.png" alt=""/></p>\n'
+    "<p>E1.</p>\n<p>***</p>\n<p>&#8258;</p>\n<p>F1.</p>\n"
+)
+ASTERISM_2 = page("<h1>Two</h1>\n<p>G1.</p>\n")
+
+# One chapter spread over two files: the NCX points only at the first.
+SPLIT_NCX = NCX.replace(
+    """    <navPoint id="n2" playOrder="2">
+      <navLabel><text>Two</text></navLabel><content src="ch2.xhtml"/>
+    </navPoint>
+""",
+    "",
+)
+SPLIT_1 = page("<h1>One</h1>\n<p>A1.</p>\n<p>A2.</p>\n")
+SPLIT_2 = page("<p>A3.</p>\n<hr/>\n<p>B1.</p>\n")
+
+# Two chapters in one file, found through NCX fragment links; plus verse and list blocks.
+FRAGMENT_NCX = NCX.replace('src="ch2.xhtml"', 'src="ch1.xhtml#second"')
+FRAGMENT_1 = page(
+    "<h1>One</h1>\n<p>A1.</p>\n"
+    '<div class="poem"><p>Roses are red</p><p>Violets are blue</p></div>\n'
+    "<ul><li>first</li><li>second</li></ul>\n"
+    '<h1 id="second">Two</h1>\n<p class="verse">Line a<br/>Line b</p>\n'
+)
+FRAGMENT_2 = page("<p>More of two.</p>\n")
+
+# No usable NCX entries: chapters are found from the headings alone.
+NO_TOC_NCX = NCX.split("<navMap>")[0] + "<navMap/>\n</ncx>\n"
+
+
+def write(name: str, files: dict[str, bytes | str], *, ncx: str = NCX, opf: str = OPF) -> None:
     members: dict[str, bytes | str] = {
         "META-INF/container.xml": CONTAINER,
-        "OEBPS/content.opf": OPF,
-        "OEBPS/toc.ncx": NCX,
+        "OEBPS/content.opf": opf,
+        "OEBPS/toc.ncx": ncx,
         "OEBPS/style.css": CSS,
         "OEBPS/images/dot.png": PNG,
     }
@@ -138,6 +186,15 @@ def write(name: str, files: dict[str, bytes | str]) -> None:
 def main() -> None:
     write("plain.epub", {"ch1.xhtml": PLAIN_1, "ch2.xhtml": PLAIN_2})
     write("odd-markup.epub", {"ch1.xhtml": ODD_1, "ch2.xhtml": PLAIN_2})
+    write("hr-breaks.epub", {"ch1.xhtml": HR_1, "ch2.xhtml": HR_2})
+    write("asterism-breaks.epub", {"ch1.xhtml": ASTERISM_1, "ch2.xhtml": ASTERISM_2})
+    write("split-chapter.epub", {"ch1.xhtml": SPLIT_1, "ch2.xhtml": SPLIT_2}, ncx=SPLIT_NCX)
+    write(
+        "fragment-chapters.epub",
+        {"ch1.xhtml": FRAGMENT_1, "ch2.xhtml": FRAGMENT_2},
+        ncx=FRAGMENT_NCX,
+    )
+    write("no-toc.epub", {"ch1.xhtml": HR_1, "ch2.xhtml": HR_2}, ncx=NO_TOC_NCX)
 
 
 if __name__ == "__main__":
