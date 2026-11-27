@@ -9,7 +9,6 @@ report; any finding fails the stage, and `require_qa_clean` is what the build ca
 
 import re
 import sqlite3
-import sys
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -304,7 +303,8 @@ def require_qa_clean(db: sqlite3.Connection) -> None:
 
 
 def print_report(workspace: Path) -> None:
-    """Print the stored QA report, if QA has run; exit with an error when it failed."""
+    """Print the stored QA report, if QA has run. A failed QA does not make `run` itself fail:
+    the run did what it was asked, and the failed stage is what stops the build."""
     db = sqlite3.connect(workspace / DB_NAME)
     try:
         has_stages = db.execute("select 1 from sqlite_master where name = 'stages'").fetchone()
@@ -319,5 +319,3 @@ def print_report(workspace: Path) -> None:
     if row is None:
         return
     print(render(found))
-    if row[0] == "failed":
-        sys.exit(1)

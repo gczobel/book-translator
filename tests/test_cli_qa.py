@@ -8,6 +8,7 @@ import pytest
 from book_translator import main
 from book_translator.epub import open_epub
 from book_translator.llm import LLMRequest, RawAnswer
+from book_translator.qa import QAFailedError, require_qa_clean
 from test_cli_bible_part2 import EPUB
 from test_cli_draft import source_ids
 from test_cli_fidelity import query
@@ -34,10 +35,7 @@ def translate(tmp_path: Path, adapter: CountingAdapter, *extra: str) -> Path:
     main(["approve", str(ws)])  # analysis gate
     main(["run", str(ws)], adapter=adapter)
     main(["approve", str(ws)])  # TK gate
-    try:
-        main(["run", str(ws)], adapter=adapter)
-    except SystemExit:  # QA may already fail on the drafted text
-        pass
+    main(["run", str(ws)], adapter=adapter)
     return ws
 
 
@@ -55,10 +53,7 @@ def set_target(ws: Path, block: str, text: str, position: int = 0) -> None:
 def qa(ws: Path, adapter: CountingAdapter, capsys: pytest.CaptureFixture[str]) -> str:
     """Run again (the QA stage re-runs on the stored targets) and return what was printed."""
     capsys.readouterr()
-    try:
-        main(["run", str(ws)], adapter=adapter)
-    except SystemExit:
-        pass
+    main(["run", str(ws)], adapter=adapter)
     return capsys.readouterr().out
 
 
@@ -210,6 +205,31 @@ def test_an_open_tk_and_an_unresolved_fidelity_finding_are_reported(
     assert findings(ws) == [(block, "open_tk"), (block, "unresolved_finding")]
     assert "TK-9" in out
     assert "meaning drift" in out
+
+
+def test_failed_qa_blocks_the_build_and_status_names_the_findings(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    adapter = CountingAdapter()
+    ws = translate(tmp_path, adapter)
+    block = source_ids()[1]
+    with sqlite3.connect(ws / "book.sqlite") as db:
+        require_qa_clean(db)  # a clean book may be built
+    set_target(ws, block, "")
+    qa(ws, adapter, capsys)
+
+    with sqlite3.connect(ws / "book.sqlite") as db, pytest.raises(QAFailedError, match="QA"):
+        require_qa_clean(db)
+    main(["status", str(ws)])
+    out = capsys.readouterr().out
+    assert "Stage: qa (failed)" in out
+    assert f"[omission] {block}" in out
+    assert "Next: fix the QA findings" in out
+
+    set_target(ws, block, "It was a quiet evening.")
+    qa(ws, adapter, capsys)
+    with sqlite3.connect(ws / "book.sqlite") as db:
+        require_qa_clean(db)  # fixed text passes again
 
 
 def test_the_length_band_is_configurable(

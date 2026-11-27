@@ -6,6 +6,8 @@ from pathlib import Path
 
 from book_translator.budget import CAP_SETTING
 from book_translator.epub import open_epub
+from book_translator.qa import Finding, stored_findings
+from book_translator.qa import render as render_report
 from book_translator.workspace import DB_NAME, SOURCE_NAME
 
 # Pipeline order of the stages that exist so far; later stages are appended here.
@@ -42,6 +44,7 @@ class Status:
     spent_usd: float
     cap_usd: float
     gate: Gate | None
+    qa_findings: tuple[Finding, ...] = ()
 
 
 def waiting_gate(db: sqlite3.Connection, workspace: Path) -> Gate | None:
@@ -73,6 +76,7 @@ def read_status(workspace: Path) -> Status:
             spent = float(db.execute("select coalesce(sum(cost_usd), 0) from spend").fetchone()[0])
         row = db.execute("select value from settings where key = ?", (CAP_SETTING,)).fetchone()
         gate = waiting_gate(db, workspace) if "stages" in tables else None
+        qa_findings = tuple(stored_findings(db))
     finally:
         db.close()
     total = len(open_epub(workspace / SOURCE_NAME).book().chapters)
@@ -84,6 +88,7 @@ def read_status(workspace: Path) -> Status:
         spent_usd=spent,
         cap_usd=float(row[0]),
         gate=gate,
+        qa_findings=qa_findings,
     )
 
 
@@ -99,6 +104,12 @@ def render(status: Status, workspace: Path) -> str:
     ]
     if status.gate is None:
         lines.append("Review gate: none waiting")
+        if status.qa_findings:
+            lines.append(render_report(list(status.qa_findings)))
+            lines.append(
+                "Next: fix the QA findings, then run book-translator run " + str(workspace)
+            )
+            return "\n".join(lines)
         finished = status.stage == STAGES[-1] and status.stage_state in FINISHED
         lines.append(
             "Next: nothing left to run" if finished else f"Next: book-translator run {workspace}"
