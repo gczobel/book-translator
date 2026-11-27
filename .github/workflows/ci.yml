@@ -7,9 +7,6 @@ on:
 # Least privilege by default; each job asks for what it needs (ADR 0005).
 permissions: {}
 
-env:
-  UV_PYTHON: "3.13"
-
 # Layout: each worker job does the work; each required check is a separate
 # aggregator job with a name unique across workflows. The aggregator fails
 # unless every upstream job succeeded, so a skipped, cancelled or neutral
