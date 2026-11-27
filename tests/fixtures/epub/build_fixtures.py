@@ -201,6 +201,18 @@ NOTES_PAGE = page(
     '<p id="nt2">2. The mayor.<a href="ch2.xhtml#rf2">back</a></p>\n'
 )
 
+# A table-of-contents page in the spine whose links also carry `title` attributes.
+TOC_PAGE_OPF = OPF.replace(
+    '<item id="c1" href="ch1.xhtml"',
+    '<item id="toc" href="contents.xhtml" media-type="application/xhtml+xml"/>\n'
+    '    <item id="c1" href="ch1.xhtml"',
+).replace('<itemref idref="c1"/>', '<itemref idref="toc"/>\n    <itemref idref="c1"/>')
+TOC_PAGE = page(
+    "<h1>Contents</h1>\n"
+    '<p><a href="ch1.xhtml" title="One">One</a></p>\n'
+    '<p><a href="ch2.xhtml" title="Two">Two</a></p>\n'
+)
+
 # Front and back matter told apart by file name and spine position alone (EPUB 2, no
 # epub:type): cover, synopsis, title page, credits and an untitled dedication in front;
 # notes and about the author behind the chapters.
@@ -361,6 +373,11 @@ def main() -> None:
             "about-the-author.xhtml": MATTER_ABOUT,
         },
         opf=MATTER_OPF,
+    )
+    write(
+        "toc-page.epub",
+        {"ch1.xhtml": PLAIN_1, "ch2.xhtml": PLAIN_2, "contents.xhtml": TOC_PAGE},
+        opf=TOC_PAGE_OPF,
     )
     write("epub3.epub", EPUB3_PARTS, opf=EPUB3_OPF, nav=EPUB3_NAV, ncx=None)
 
