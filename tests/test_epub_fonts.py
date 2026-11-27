@@ -9,6 +9,7 @@ import pytest
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 
+from book_translator.build import SyncEdits, apply_synchronized_edits
 from book_translator.epub import open_epub
 from book_translator.fonts import FontCoverageError, check_font_coverage
 
@@ -151,3 +152,10 @@ def test_font_obfuscated_with_unsupported_algorithm_fails_loudly(tmp_path: Path)
 
     assert "Adobe.ttf" in str(error.value)
     assert "obfuscat" in str(error.value)
+
+
+def test_synchronized_edits_fail_when_a_font_lacks_the_target_language(tmp_path: Path) -> None:
+    path = epub_with_fonts(tmp_path, {"Tiny.ttf": make_font(SPANISH_ALL.replace("ñ", "n"))})
+
+    with pytest.raises(FontCoverageError, match="Tiny.ttf lacks ñ"):
+        apply_synchronized_edits(open_epub(path), SyncEdits(language="es"))
