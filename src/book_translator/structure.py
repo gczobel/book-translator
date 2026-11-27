@@ -257,6 +257,14 @@ def _items(member: str, data: bytes) -> Iterator[_Item]:
         count += 1
 
 
+def find_element(root: etree._Element, block_id: str) -> etree._Element | None:
+    """The element behind a block id ("<member>#<n>"), or None if the document has no such n."""
+    body = next((e for e in root.iter() if _name(e) == "body"), None)
+    n = int(block_id.rpartition("#")[2])
+    found = list(_walk(body, set())) if body is not None else []
+    return found[n][0] if n < len(found) else None
+
+
 def _links(member: str, el: etree._Element) -> tuple[tuple[str, str], ...]:
     out: list[tuple[str, str]] = []
     for a in el.iter():

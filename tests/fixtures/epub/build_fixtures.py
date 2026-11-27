@@ -125,6 +125,18 @@ def page(body: str) -> str:
     )
 
 
+# Inline markup: nested italics, a classed link, note reference anchors, line breaks,
+# an empty element and a character that must be escaped.
+INLINE_1 = page(
+    "<h1>One</h1>\n"
+    '<p id="p1" class="first">She said <em>that <i class="x">very</i> thing</em> to '
+    '<a href="ch2.xhtml#t" class="ref" id="l1">Tom &amp; Jerry</a>'
+    '<a epub:type="noteref" href="notes.xhtml#n1" id="r1" class="noteref">1</a>, '
+    "then left.<br/>Nobody <span/>followed.</p>\n"
+    "<p>Plain words only.</p>\n"
+).replace('xml:lang="en">', 'xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en">', 1)
+INLINE_2 = page("<h1>Two</h1>\n<p>B1.</p>\n")
+
 # Scene breaks drawn as <hr> elements of different classes (and none).
 HR_1 = page(
     '<h1>One</h1>\n<p>A1.</p>\n<p>A2.</p>\n<hr class="ornament"/>\n<p>B1.</p>\n'
@@ -311,6 +323,7 @@ def write(
 def main() -> None:
     write("plain.epub", {"ch1.xhtml": PLAIN_1, "ch2.xhtml": PLAIN_2})
     write("odd-markup.epub", {"ch1.xhtml": ODD_1, "ch2.xhtml": PLAIN_2})
+    write("inline-markup.epub", {"ch1.xhtml": INLINE_1, "ch2.xhtml": INLINE_2})
     write("hr-breaks.epub", {"ch1.xhtml": HR_1, "ch2.xhtml": HR_2})
     write("asterism-breaks.epub", {"ch1.xhtml": ASTERISM_1, "ch2.xhtml": ASTERISM_2})
     write("split-chapter.epub", {"ch1.xhtml": SPLIT_1, "ch2.xhtml": SPLIT_2}, ncx=SPLIT_NCX)
