@@ -25,7 +25,7 @@ class Api(Protocol):
     def get_json(self, path: str) -> Any: ...
 
     def get_pages(self, path: str) -> list[Any]:
-        """Every item of a paginated list endpoint; raises GuardError if it can't get all."""
+        """Every item of a paginated list endpoint; raises an error if it can't get all."""
         ...
 
     def get_text(self, path: str) -> str | None:

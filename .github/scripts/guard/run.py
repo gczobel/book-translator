@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
+from ghapi.client import ApiError, HttpApi
 from guard import rules
-from guard.api import HttpApi
 from guard.collect import Api, collect, require_repo
 from guard.errors import GuardError
 
@@ -28,7 +28,7 @@ def run(env: Mapping[str, str], api: Api | None = None) -> int:
             api = HttpApi(token)
         pr, files, reviews, snapshot = collect(api, repo, int(number_text))
         verdict = rules.evaluate(pr, files, reviews, snapshot)
-    except GuardError as error:
+    except (GuardError, ApiError) as error:
         print(f"guard: cannot decide, failing closed: {error}")
         return 2
     except Exception as error:  # anything unexpected must still fail the check
