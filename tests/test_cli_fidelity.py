@@ -47,6 +47,10 @@ class FidelityAdapter(ResolveAdapter):
         self.fidelity_requests: list[LLMRequest] = []
 
     def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+        if request.stage == "polish":  # covered in test_cli_polish.py; here, leave as it is
+            scene = json.loads(request.source_text)["scene"]
+            blocks = [{"id": b["id"], "texts": [t["text"] for t in b["targets"]]} for b in scene]
+            return RawAnswer(json.dumps({"blocks": blocks}))
         if request.stage != "fidelity":
             return super().complete(request, key, attempt)
         if attempt == 0:
