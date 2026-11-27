@@ -6,13 +6,12 @@ partial or odd data raises TrustError. Neither ever yields a half-trusted issue.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from ghapi.repo import split_repo
 from issuetrust.core import TrustError, check_not_edited_after_ready, owner_comments
 
-_REPO = re.compile(r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)")
 _QUERY = """
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
@@ -65,8 +64,8 @@ def _edit_history(api: Api, owner: str, name: str, number: int) -> tuple[list[An
 
 def load_trusted_issue(api: Api, repo: str, number: int) -> TrustedIssue:
     """The issue and the owner's comments, or an exception if it can't be trusted."""
-    match = _REPO.fullmatch(repo)
-    if match is None:
+    parts = split_repo(repo)
+    if parts is None:
         raise TrustError("repository is not owner/name")
     issue = api.get_json(f"/repos/{repo}/issues/{number}")
     if not isinstance(issue, dict):
@@ -76,6 +75,6 @@ def load_trusted_issue(api: Api, repo: str, number: int) -> TrustedIssue:
     if isinstance(reported, bool) or not isinstance(reported, int) or len(comments) < reported:
         raise TrustError("fewer comments arrived than the issue reports")
     events = api.get_pages(f"/repos/{repo}/issues/{number}/timeline")
-    edits, last_edited_at = _edit_history(api, match.group(1), match.group(2), number)
+    edits, last_edited_at = _edit_history(api, *parts, number)
     check_not_edited_after_ready(issue, events, edits, last_edited_at)
     return TrustedIssue(issue=issue, comments=owner_comments(comments))

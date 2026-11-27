@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
+from ghapi.repo import split_repo
 from guard import rules
 from guard.errors import GuardError
 
@@ -18,7 +19,6 @@ GITHUB_FILE_LIST_LIMIT = 3000  # the PR files API never returns more than this
 # Symlinks and submodule gitlinks: entries that point somewhere else.
 _LINK_MODES = {"120000", "160000"}
 _SHA = re.compile(r"[0-9a-f]{40}")
-_REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 
 class Api(Protocol):
@@ -54,7 +54,7 @@ def _require_sha(value: Any, what: str) -> str:
 
 def require_repo(value: Any, what: str) -> str:
     repo = _require_str(value, what)
-    if not _REPO.fullmatch(repo):
+    if split_repo(repo) is None:
         raise GuardError(f"{what} is not owner/name")
     return repo
 

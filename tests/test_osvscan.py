@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from ghapi.client import ApiError
 from ghapi.identities import DEPENDABOT_ID
 from osvscan.core import Verdict, decide
@@ -268,3 +270,9 @@ def test_run_fails_loudly_when_outputs_cannot_be_written(tmp_path: Path) -> None
     del env["GITHUB_OUTPUT"]
     assert run(env, FakePulls(), NOW) == 1
 
+
+@pytest.mark.parametrize("repo", ["", "no-slash", "a/b/c", "a/b?x=1", "a b/c"])
+def test_run_fails_loudly_on_a_malformed_repository(tmp_path: Path, repo: str) -> None:
+    env = env_for(tmp_path, osv())
+    env["GITHUB_REPOSITORY"] = repo
+    assert run(env, FakePulls(), NOW) == 1

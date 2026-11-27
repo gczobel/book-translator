@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ghapi.client import HttpApi
+from ghapi.repo import split_repo
 from osvscan.core import decide
 
 
@@ -45,6 +46,9 @@ def run(env: Mapping[str, str], api: Api | None = None, now: datetime | None = N
         out_path = env["GITHUB_OUTPUT"]
     except (KeyError, ValueError):
         print("osvscan: OSV_EXIT_CODE, OSV_OUTPUT_FILE, GITHUB_REPOSITORY or GITHUB_OUTPUT is bad")
+        return 1
+    if split_repo(repo) is None:
+        print("osvscan: GITHUB_REPOSITORY is not owner/name")
         return 1
     try:
         stdout = Path(output_file).read_text(encoding="utf-8")

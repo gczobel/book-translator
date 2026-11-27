@@ -16,6 +16,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from ghapi.repo import split_repo
+
 MAINT_BOT_ID = 361970745  # book-translator-maint[bot]
 OWNER_LOGIN = "gczobel"  # only for assigning; identity checks use numeric IDs
 LABEL = "ready-for-human"
@@ -49,7 +51,6 @@ REASONS: dict[str, tuple[str, str]] = {
 }
 
 _KEY = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
-_REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 _NUMBER = re.compile(r"[0-9]{1,12}")
 _SERVER = "https://github.com"
 
@@ -84,7 +85,7 @@ def parse_request(env: Mapping[str, str]) -> Request:
         raise EscalationError("ESCALATE_REF must be a number")
     repo = env.get("GITHUB_REPOSITORY", "")
     run_id = env.get("GITHUB_RUN_ID", "")
-    if not _REPO.fullmatch(repo) or not _NUMBER.fullmatch(run_id):
+    if split_repo(repo) is None or not _NUMBER.fullmatch(run_id):
         raise EscalationError("GITHUB_REPOSITORY or GITHUB_RUN_ID is missing or malformed")
     if env.get("GITHUB_SERVER_URL", "") != _SERVER:
         raise EscalationError("GITHUB_SERVER_URL is not github.com")
