@@ -53,7 +53,13 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         f"Output: {report['output']}  ",
         f"Reference: {report['reference']}  ",
-        f"chrF overall: {report['chrf_overall']}",
+        f"chrF overall: {report['chrf_overall']}  ",
+        "Evaluation mode: "
+        + (
+            "on (established-terminology lookups were off)"
+            if report["evaluation_mode"]
+            else "OFF (established-terminology lookups were allowed: scores may be inflated)"
+        ),
         "",
         "## Per chapter (chrF)",
         "",
@@ -66,6 +72,30 @@ def render_markdown(report: dict[str, Any]) -> str:
         )
     for title in report["unaligned_reference_chapters"]:
         lines.append(f"- reference chapter without a counterpart: {title}")
+    if "judge" in report:
+        judge = report["judge"]
+        lines += ["", "## Judge: errors", ""]
+        lines += [f"- {t}: {n}" for t, n in judge["by_type"].items()] or ["- none"]
+        lines += [
+            "",
+            "By severity: "
+            + (", ".join(f"{s} {n}" for s, n in judge["by_severity"].items()) or "none"),
+        ]
+        lines += ["", "### Marks per scene", ""]
+        for scene in judge["scenes"]:
+            marks = "; ".join(f"{m['type']}/{m['severity']}: {m['note']}" for m in scene["marks"])
+            lines.append(
+                f"- chapter {scene['chapter']}, scene {scene['scene']}: {marks or 'no errors'}"
+            )
+    if "comet" in report:
+        comet = report["comet"]
+        lines += ["", "## COMET", "", f"Overall: {comet['overall']}"]
+        lines += [
+            f"- chapter {s['chapter']}, scene {s['scene']}: {s['score']}" for s in comet["scenes"]
+        ]
+    if report.get("diagnosis"):
+        lines += ["", "## Diagnosis", ""]
+        lines += [f"- {d['cause']} (fix: {d['fix']})" for d in report["diagnosis"]]
     qa = report["qa"]
     lines += ["", "## QA", ""]
     lines.append("passed" if qa["passed"] else f"{len(qa['findings'])} finding(s):")
