@@ -33,6 +33,19 @@ _MATTER_NAMES: list[tuple[MatterKind, re.Pattern[str]]] = [
     ("about_author", re.compile(r"(about(the)?)?authors?|aboutauthor")),
     ("notes", re.compile(r"(end|foot)?notes")),
 ]
+_EPUB_TYPES: dict[str, MatterKind] = {
+    "cover": "cover",
+    "titlepage": "title_page",
+    "halftitlepage": "title_page",
+    "dedication": "dedication",
+    "abstract": "synopsis",
+    "colophon": "credits",
+    "copyright-page": "credits",
+    "endnotes": "notes",
+    "footnotes": "notes",
+    "rearnotes": "notes",
+}
+_EPUB_NS = "http://www.idpf.org/2007/ops"
 _ASTERISM_CHARS = set("*⁂✻✽❖◆◇•·~#-—–_")
 
 
@@ -107,8 +120,9 @@ def build_book(
     read: Callable[[str], bytes],
     nav: dict[tuple[str, str | None], str],
 ) -> Book:
-    kinds = {member: _matter_kind(member) for member in spine}
-    every = [i for member in spine for i in _items(member, read(member))]
+    data = {member: read(member) for member in spine}
+    kinds = {member: _semantic_kind(data[member]) or _matter_kind(member) for member in spine}
+    every = [i for member in spine for i in _items(member, data[member])]
     position: dict[str, int] = {}
     for item in every:
         if item.kind is not None:
@@ -154,6 +168,18 @@ def build_book(
             scenes.append(Scene(current))
         chapters.append(Chapter(title, scenes, breaks))
     return Book(chapters, _notes(every), front, back)
+
+
+def _semantic_kind(data: bytes) -> MatterKind | None:
+    """Kind of matter declared by `epub:type` on the body or its top-level sections."""
+    body = next((e for e in etree.fromstring(data).iter() if _name(e) == "body"), None)
+    if body is None:
+        return None
+    for el in [body, *body]:
+        for token in str(el.get(f"{{{_EPUB_NS}}}type", "")).split():
+            if token in _EPUB_TYPES:
+                return _EPUB_TYPES[token]
+    return None
 
 
 def _matter_kind(member: str) -> MatterKind | None:

@@ -6,6 +6,7 @@ content below does. Nothing here is a real book.
 """
 
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -212,15 +213,90 @@ MATTER_CREDITS = page("<p>First published as Un Cuento. Copyright Nobody.</p>\n"
 MATTER_DEDICATION = page("<p><i>For the one who stayed.</i></p>\n")
 MATTER_ABOUT = page("<h2>About the author</h2>\n<p>Nobody lives nowhere.</p>\n")
 
+# EPUB 3 with semantic markup: file names say nothing, `epub:type` does. Chapters come from
+# the `nav.xhtml` (no NCX); notes use `noteref` references and `footnote` asides.
+EPUB3_OPF = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Synthetic Tale</dc:title>
+    <dc:language>en</dc:language>
+    <dc:identifier id="bookid">urn:uuid:00000000-0000-0000-0000-000000000003</dc:identifier>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="img" href="images/dot.png" media-type="image/png"/>
+"""
+EPUB3_FILES = [f"part000{n}.xhtml" for n in range(1, 8)]
+EPUB3_OPF += (
+    "".join(
+        f'    <item id="p{n}" href="{h}" media-type="application/xhtml+xml"/>\n'
+        for n, h in enumerate(EPUB3_FILES, 1)
+    )
+    + "  </manifest>\n  <spine>\n"
+    + "".join(f'    <itemref idref="p{n}"/>\n' for n in range(1, 8))
+    + "  </spine>\n</package>\n"
+)
+EPUB3_NAV = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>Contents</title></head>
+<body>
+  <nav epub:type="toc"><h1>Contents</h1>
+    <ol>
+      <li><a href="part0004.xhtml">Chapter One</a></li>
+      <li><a href="part0005.xhtml">Chapter Two</a></li>
+    </ol>
+  </nav>
+</body>
+</html>
+"""
 
-def write(name: str, files: dict[str, bytes | str], *, ncx: str = NCX, opf: str = OPF) -> None:
+
+def sem(kind: str, body: str) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<html xmlns="http://www.w3.org/1999/xhtml" '
+        'xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en">\n'
+        f'<head><title>T</title></head>\n<body><section epub:type="{kind}">\n{body}</section>'
+        "</body>\n</html>\n"
+    )
+
+
+EPUB3_PARTS = {
+    "part0001.xhtml": sem("cover", '<p><img src="images/dot.png" alt="Cover"/></p>\n'),
+    "part0002.xhtml": sem("titlepage", "<h1>Synthetic Tale</h1>\n"),
+    "part0003.xhtml": sem("dedication", "<p>For the one who stayed.</p>\n"),
+    "part0004.xhtml": sem(
+        "chapter",
+        "<h1>One</h1>\n<p>Born in the town."
+        '<a epub:type="noteref" href="part0006.xhtml#fn1">1</a></p>\n',
+    ),
+    "part0005.xhtml": sem("chapter", "<h1>Two</h1>\n<p>Then left.</p>\n"),
+    "part0006.xhtml": sem(
+        "endnotes", '<aside epub:type="footnote" id="fn1"><p>1. A small town.</p></aside>\n'
+    ),
+    "part0007.xhtml": sem("colophon", "<p>Translated by a machine.</p>\n"),
+}
+
+
+def write(
+    name: str,
+    files: Mapping[str, bytes | str],
+    *,
+    ncx: str | None = NCX,
+    opf: str = OPF,
+    nav: str | None = None,
+) -> None:
     members: dict[str, bytes | str] = {
         "META-INF/container.xml": CONTAINER,
         "OEBPS/content.opf": opf,
-        "OEBPS/toc.ncx": ncx,
+        "OEBPS/toc.ncx": ncx or "",
         "OEBPS/style.css": CSS,
         "OEBPS/images/dot.png": PNG,
     }
+    if ncx is None:
+        del members["OEBPS/toc.ncx"]
+    if nav is not None:
+        members["OEBPS/nav.xhtml"] = nav
     members.update({f"OEBPS/{k}": v for k, v in files.items()})
     with zipfile.ZipFile(HERE / name, "w") as z:
         info = zipfile.ZipInfo("mimetype", STAMP)
@@ -264,6 +340,7 @@ def main() -> None:
         },
         opf=MATTER_OPF,
     )
+    write("epub3.epub", EPUB3_PARTS, opf=EPUB3_OPF, nav=EPUB3_NAV, ncx=None)
 
 
 if __name__ == "__main__":

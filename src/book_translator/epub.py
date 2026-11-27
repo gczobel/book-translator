@@ -69,6 +69,44 @@ class Epub:
         return build_book(self.spine(), self.read, self._nav_labels())
 
     def _nav_labels(self) -> dict[tuple[str, str | None], str]:
+        """NCX and EPUB 3 nav entries as {(member, fragment or None): label}; the NCX wins."""
+        labels = self._ncx_labels()
+        for key, label in self._nav_document_labels().items():
+            labels.setdefault(key, label)
+        return labels
+
+    def _nav_document_labels(self) -> dict[tuple[str, str | None], str]:
+        """Entries of the EPUB 3 `nav` document's table of contents."""
+        opf = etree.fromstring(self.read(self._opf_path))
+        ns = {"o": "http://www.idpf.org/2007/opf", "h": "http://www.w3.org/1999/xhtml"}
+        base = PurePosixPath(self._opf_path).parent
+        nav_path = next(
+            (
+                str(base / str(i.get("href")))
+                for i in opf.iterfind(".//o:manifest/o:item", ns)
+                if "nav" in str(i.get("properties", "")).split() and i.get("href")
+            ),
+            None,
+        )
+        if nav_path is None or nav_path not in self._by_name:
+            return {}
+        ops = "{http://www.idpf.org/2007/ops}type"
+        labels: dict[tuple[str, str | None], str] = {}
+        for nav in etree.fromstring(self.read(nav_path)).iterfind(".//h:nav", ns):
+            if "toc" not in str(nav.get(ops, "")).split():
+                continue
+            for a in nav.iterfind(".//h:a", ns):
+                if not a.get("href"):
+                    continue
+                src, _, fragment = unquote(str(a.get("href"))).partition("#")
+                member = posixpath.normpath(posixpath.join(posixpath.dirname(nav_path), src))
+                label = " ".join(
+                    etree.tostring(a, method="text", encoding="unicode", with_tail=False).split()
+                )
+                labels.setdefault((member, fragment or None), label)
+        return labels
+
+    def _ncx_labels(self) -> dict[tuple[str, str | None], str]:
         """NCX entries as {(member, fragment or None): label}; empty if there is no NCX."""
         opf = etree.fromstring(self.read(self._opf_path))
         ns = {"o": "http://www.idpf.org/2007/opf"}

@@ -146,3 +146,26 @@ def test_notes_in_a_notes_part_stay_linked_and_leave_the_chapters() -> None:
         "2. The mayor.back",
     ]
     assert all("Notes" not in [b.text for s in c.scenes for b in s.blocks] for c in book.chapters)
+
+
+def test_epub3_semantics_classify_matter_whatever_the_file_names() -> None:
+    book = open_epub(FIXTURES / "epub3.epub").book()
+
+    assert [p.kind for p in book.front] == ["cover", "title_page", "dedication"]
+    assert [p.kind for p in book.back] == ["notes", "credits"]
+    assert [b.text for b in book.front[2].blocks] == ["For the one who stayed."]
+
+
+def test_epub3_noteref_links_to_a_footnote() -> None:
+    book = open_epub(FIXTURES / "epub3.epub").book()
+
+    note = book.notes[0]
+    reference = book.chapters[0].scenes[0].blocks[1]
+    assert note.reference == reference.id
+    assert [b.text for b in book.back[0].blocks if b.id == note.block] == ["1. A small town."]
+
+
+def test_epub3_chapters_come_from_the_nav_document() -> None:
+    book = open_epub(FIXTURES / "epub3.epub").book()
+
+    assert [c.title for c in book.chapters] == ["Chapter One", "Chapter Two"]
