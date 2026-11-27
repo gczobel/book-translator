@@ -1,3 +1,7 @@
+# NOT ACTIVE. Held back from .github/workflows/ on purpose. The first `v*` tag this workflow
+# creates ends ADR 0005 phase 1: from then on the agent merge rule (agentpr) refuses every agent
+# PR until phase 2 (owner approval on each agent PR) exists. Move this file to .github/workflows/
+# only when phase 2 is built, or when the owner wants the first release and accepts that switch.
 name: release
 
 # release-please (ticket #20, ADR 0005 "Releases"). On every push to main it keeps one release PR

@@ -17,6 +17,9 @@ cadence polish, fidelity gate, deterministic QA.
 
 ## Installing a release
 
+> No release has been cut yet. Releases start once the release workflow is enabled (it is held
+> back in `docs/agents/pending/` until the agent-PR approval step exists).
+
 Releases are cut by release-please: a merged `feat:` or `fix:` commit opens a release PR, and
 merging it tags `vX.Y.Z` and creates the GitHub Release. Tags cannot be moved or deleted, and
 each new tag is checked automatically (a `release-verify` run on every tag creation).
