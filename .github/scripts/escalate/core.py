@@ -16,9 +16,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from ghapi.identities import MAINT_BOT_ID
 from ghapi.repo import split_repo
 
-MAINT_BOT_ID = 361970745  # book-translator-maint[bot]
 OWNER_LOGIN = "gczobel"  # only for assigning; identity checks use numeric IDs
 LABEL = "ready-for-human"
 
