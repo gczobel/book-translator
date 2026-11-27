@@ -5,9 +5,51 @@ Part 2 (address grid, glossary, motifs, summaries, timeline, cruxes) is added as
 fields with defaults, so a stored part-1 bible keeps validating.
 """
 
-from typing import Literal, Self
+from collections.abc import Iterable
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, BeforeValidator, model_validator
+
+from book_translator.tolerance import choice, plain
+
+
+def settle_names(data: Any, cast: Iterable[tuple[str, Iterable[str]]]) -> Any:
+    """Rewrite the character names a model used for the cast's own spelling (by name or alias,
+    ignoring case, accents and punctuation). A name that matches nobody is left for the
+    validators to reject."""
+    if not isinstance(data, dict):
+        return data
+    known: dict[str, str] = {}
+    for name, aliases in cast:
+        for spelling in (name, *aliases):
+            known.setdefault(plain(spelling), name)
+
+    def settle(value: Any) -> Any:
+        return known.get(plain(value), value) if isinstance(value, str) else value
+
+    data = dict(data)
+    for field, keys in (
+        ("voice_cards", ("character",)),
+        ("address_grid", ("speaker", "addressee")),
+    ):
+        rows = data.get(field)
+        if isinstance(rows, list):
+            data[field] = [
+                {**row, **{k: settle(row.get(k)) for k in keys if k in row}}
+                if isinstance(row, dict)
+                else row
+                for row in rows
+            ]
+    return data
+
+
+def cast_of(data: Any) -> list[tuple[str, list[str]]]:
+    members = data.get("cast") if isinstance(data, dict) else None
+    return [
+        (m["name"], [a for a in m.get("aliases", []) if isinstance(a, str)])
+        for m in members or []
+        if isinstance(m, dict) and isinstance(m.get("name"), str)
+    ]
 
 
 class Profile(BaseModel):
@@ -22,7 +64,10 @@ class Profile(BaseModel):
 
 
 class StyleSheet(BaseModel):
-    dialogue: Literal["raya-split", "inline-quotes"] = "raya-split"
+    dialogue: Annotated[
+        Literal["raya-split", "inline-quotes"],
+        BeforeValidator(choice("raya-split", "inline-quotes")),
+    ] = "raya-split"
     thoughts: str
     numbers: str
     titles: str
@@ -49,7 +94,7 @@ class AddressRule(BaseModel):
 
     speaker: str
     addressee: str
-    form: Literal["tú", "usted"]
+    form: Annotated[Literal["tú", "usted"], BeforeValidator(choice("tú", "usted"))]
     from_chapter: int | None = None
     to_chapter: int | None = None
 
@@ -69,7 +114,10 @@ class GlossaryEntry(BaseModel):
     rendering: str
     banned_variants: list[str] = []
     context_rule: str = ""
-    origin: Literal["extracted", "researched", "established"]
+    origin: Annotated[
+        Literal["extracted", "researched", "established"],
+        BeforeValidator(choice("extracted", "researched", "established")),
+    ]
     source: str = ""  # where an established rendering was found
 
 
@@ -93,12 +141,21 @@ class TimelineEvent(BaseModel):
 class Crux(BaseModel):
     """A passage predicted to need a decision: where the translation is likely to get stuck."""
 
-    type: Literal["pun", "lyrics", "quotation", "dialect"]
+    type: Annotated[
+        Literal["pun", "lyrics", "quotation", "dialect"],
+        BeforeValidator(choice("pun", "lyrics", "quotation", "dialect")),
+    ]
     location: str
     note: str = ""
     # For a quoted song, poem or scripture: use a published translation (named in `source`) or
     # render it ourselves, in which case the rendering is marked as ours.
-    recommendation: Literal["existing translation", "our own"] | None = None
+    recommendation: (
+        Annotated[
+            Literal["existing translation", "our own"],
+            BeforeValidator(choice("existing translation", "our own")),
+        ]
+        | None
+    ) = None
     source: str = ""
 
 
@@ -125,6 +182,11 @@ class Bible(Part2):
     style: StyleSheet
     cast: list[CastMember]
     voice_cards: list[VoiceCard] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _names_as_in_the_cast(cls, data: Any) -> Any:
+        return settle_names(data, cast_of(data))
 
     @model_validator(mode="after")
     def _voice_cards_belong_to_the_cast(self) -> Self:
