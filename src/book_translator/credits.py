@@ -15,6 +15,7 @@ from lxml import etree
 
 from book_translator.epub import Epub
 from book_translator.structure import matter_kind
+from book_translator.xmlparse import fromstring
 
 _OPF = "http://www.idpf.org/2007/opf"
 _DC = "http://purl.org/dc/elements/1.1/"
@@ -56,11 +57,11 @@ def add_credits_page(epub: Epub, credits: Credits) -> None:
     """Put the credits page in the book: replace the existing one, else add it before the body."""
     existing = next((m for m in epub.spine() if matter_kind(m, epub.read(m)) == "credits"), None)
     if existing is not None:
-        epub.store(existing, etree.ElementTree(etree.fromstring(_page(credits).encode("utf-8"))))
+        epub.store(existing, etree.ElementTree(fromstring(_page(credits).encode("utf-8"))))
         return
     base = posixpath.dirname(epub.opf_path)
     epub.add(posixpath.join(base, _PAGE), _page(credits).encode("utf-8"))
-    tree = etree.ElementTree(etree.fromstring(epub.read(epub.opf_path)))
+    tree = etree.ElementTree(fromstring(epub.read(epub.opf_path)))
     root = tree.getroot()
     manifest = root.find(f"{{{_OPF}}}manifest")
     spine = root.find(f"{{{_OPF}}}spine")
@@ -103,7 +104,7 @@ def _page(c: Credits) -> str:
 def remove_branding(epub: Epub, branding: Branding = EPUBLIBRE) -> None:
     """Remove the source's branding images, the pages they leave empty, and every reference."""
     base = posixpath.dirname(epub.opf_path)
-    package = etree.ElementTree(etree.fromstring(epub.read(epub.opf_path)))
+    package = etree.ElementTree(fromstring(epub.read(epub.opf_path)))
     root = package.getroot()
     manifest = root.find(f"{{{_OPF}}}manifest")
     assert manifest is not None
@@ -116,7 +117,7 @@ def remove_branding(epub: Epub, branding: Branding = EPUBLIBRE) -> None:
     emptied: set[str] = set()
     for member in epub.names:
         if member.lower().endswith(_DOCUMENTS):
-            tree = etree.ElementTree(etree.fromstring(epub.read(member)))
+            tree = etree.ElementTree(fromstring(epub.read(member)))
             if _strip_images(tree.getroot(), member, images):
                 epub.store(member, tree)
                 if member in spine and not _has_content(tree.getroot()):
@@ -194,7 +195,7 @@ def _has_content(root: etree._Element) -> bool:
 
 def _unlink(epub: Epub, member: str, gone: set[str]) -> None:
     """Turn links to removed members into plain spans, keeping their text."""
-    tree = etree.ElementTree(etree.fromstring(epub.read(member)))
+    tree = etree.ElementTree(fromstring(epub.read(member)))
     changed = False
     for a in tree.getroot().iter():
         href = a.get("href")
@@ -209,7 +210,7 @@ def _unlink(epub: Epub, member: str, gone: set[str]) -> None:
 
 
 def _drop_nav_points(epub: Epub, member: str, gone: set[str]) -> None:
-    tree = etree.ElementTree(etree.fromstring(epub.read(member)))
+    tree = etree.ElementTree(fromstring(epub.read(member)))
     for point in list(tree.getroot().iter(f"{{{_NCX}}}navPoint")):
         content = point.find(f"{{{_NCX}}}content")
         src = content.get("src") if content is not None else None

@@ -17,6 +17,7 @@ from lxml import etree
 
 from book_translator.inline import EncodedBlock, InlineCodeError, decode, encode
 from book_translator.structure import Book, build_book, find_element
+from book_translator.xmlparse import fromstring
 
 _CONTAINER = "META-INF/container.xml"
 _XML_SUFFIXES = (".xhtml", ".html", ".htm", ".opf", ".ncx", ".xml")
@@ -69,7 +70,7 @@ class Epub:
 
     def spine(self) -> list[str]:
         """Member names of the content documents, in reading order."""
-        opf = etree.fromstring(self.read(self._opf_path))
+        opf = fromstring(self.read(self._opf_path))
         ns = {"o": "http://www.idpf.org/2007/opf"}
         hrefs: dict[str, str] = {}
         for item in opf.iterfind(".//o:manifest/o:item", ns):
@@ -162,7 +163,7 @@ class Epub:
         """Keep the member's original bytes when the edit changed nothing (an identity rebuild)."""
         member_data = self._by_name[member]
         if etree.tostring(tree, method="c14n") != etree.tostring(
-            etree.fromstring(member_data.data), method="c14n"
+            fromstring(member_data.data), method="c14n"
         ):
             member_data.data = etree.tostring(tree, xml_declaration=True, encoding="utf-8")
 
@@ -173,9 +174,7 @@ class Epub:
     def _block_element(self, block_id: str) -> tuple[str, etree._Element]:
         member, _, number = block_id.rpartition("#")
         shift = sum(n for i, n in self._extras.get(member, {}).items() if i < int(number))
-        element = find_element(
-            etree.fromstring(self.read(member)), f"{member}#{int(number) + shift}"
-        )
+        element = find_element(fromstring(self.read(member)), f"{member}#{int(number) + shift}")
         if element is None:
             raise EpubError(f"no such block: {block_id}")
         return member, element
@@ -189,7 +188,7 @@ class Epub:
 
     def _nav_document_labels(self) -> dict[tuple[str, str | None], str]:
         """Entries of the EPUB 3 `nav` document's table of contents."""
-        opf = etree.fromstring(self.read(self._opf_path))
+        opf = fromstring(self.read(self._opf_path))
         ns = {"o": "http://www.idpf.org/2007/opf", "h": "http://www.w3.org/1999/xhtml"}
         base = PurePosixPath(self._opf_path).parent
         nav_path = next(
@@ -204,7 +203,7 @@ class Epub:
             return {}
         ops = "{http://www.idpf.org/2007/ops}type"
         labels: dict[tuple[str, str | None], str] = {}
-        for nav in etree.fromstring(self.read(nav_path)).iterfind(".//h:nav", ns):
+        for nav in fromstring(self.read(nav_path)).iterfind(".//h:nav", ns):
             if "toc" not in str(nav.get(ops, "")).split():
                 continue
             for a in nav.iterfind(".//h:a", ns):
@@ -220,7 +219,7 @@ class Epub:
 
     def _ncx_labels(self) -> dict[tuple[str, str | None], str]:
         """NCX entries as {(member, fragment or None): label}; empty if there is no NCX."""
-        opf = etree.fromstring(self.read(self._opf_path))
+        opf = fromstring(self.read(self._opf_path))
         ns = {"o": "http://www.idpf.org/2007/opf"}
         spine = opf.find(".//o:spine", ns)
         toc_id = spine.get("toc") if spine is not None else None
@@ -237,7 +236,7 @@ class Epub:
             return {}
         n = {"n": "http://www.daisy.org/z3986/2005/ncx/"}
         labels: dict[tuple[str, str | None], str] = {}
-        for point in etree.fromstring(self.read(ncx_path)).iterfind(".//n:navPoint", n):
+        for point in fromstring(self.read(ncx_path)).iterfind(".//n:navPoint", n):
             text = point.find("n:navLabel/n:text", n)
             content = point.find("n:content", n)
             if text is None or content is None or not content.get("src"):
@@ -261,7 +260,7 @@ class Epub:
     def _find_opf(self) -> str:
         if _CONTAINER not in self._by_name:
             raise EpubError(f"missing {_CONTAINER}")
-        root = etree.fromstring(self._by_name[_CONTAINER].data)
+        root = fromstring(self._by_name[_CONTAINER].data)
         ns = {"c": "urn:oasis:names:tc:opendocument:xmlns:container"}
         rootfile = root.find(".//c:rootfile", ns)
         if rootfile is None or rootfile.get("full-path") not in self._by_name:
@@ -279,7 +278,7 @@ def open_epub(path: Path) -> Epub:
     for m in members:
         if m.info.filename.lower().endswith(_XML_SUFFIXES):
             try:
-                etree.fromstring(m.data)
+                fromstring(m.data)
             except etree.XMLSyntaxError as e:
                 raise EpubError(f"malformed XML in {m.info.filename}: {e}") from e
     return Epub(members)

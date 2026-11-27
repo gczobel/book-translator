@@ -13,6 +13,7 @@ from lxml import etree
 from book_translator.epub import Epub
 from book_translator.fonts import check_font_coverage
 from book_translator.notes import AddedNote, add_notes
+from book_translator.xmlparse import fromstring
 
 _DC = "http://purl.org/dc/elements/1.1/"
 _OPF = "http://www.idpf.org/2007/opf"
@@ -46,7 +47,7 @@ def apply_synchronized_edits(epub: Epub, edits: SyncEdits) -> None:
     if edits.language is not None:
         check_font_coverage(epub, edits.language)
         for member in epub.spine():
-            tree = etree.ElementTree(etree.fromstring(epub.read(member)))
+            tree = etree.ElementTree(fromstring(epub.read(member)))
             tree.getroot().set(_XML_LANG, edits.language)
             epub.store(member, tree)
 
@@ -62,7 +63,7 @@ def _set_text(metadata: etree._Element, tag: str, text: str, **attrs: str) -> No
 
 
 def _edit_package(epub: Epub, edits: SyncEdits) -> None:
-    tree = etree.ElementTree(etree.fromstring(epub.read(epub.opf_path)))
+    tree = etree.ElementTree(fromstring(epub.read(epub.opf_path)))
     metadata = tree.getroot().find(f"{{{_OPF}}}metadata")
     if metadata is None:
         return
@@ -80,7 +81,7 @@ def _edit_package(epub: Epub, edits: SyncEdits) -> None:
 def _edit_ncx_title(epub: Epub, title: str) -> None:
     for member in epub.names:
         if member.lower().endswith(".ncx"):
-            tree = etree.ElementTree(etree.fromstring(epub.read(member)))
+            tree = etree.ElementTree(fromstring(epub.read(member)))
             for text in tree.getroot().iterfind(f"{{{_NCX}}}docTitle/{{{_NCX}}}text"):
                 text.text = title
             epub.store(member, tree)
@@ -94,7 +95,7 @@ def _edit_titles(epub: Epub, titles: Mapping[str, str]) -> None:
     for member in epub.names:
         if not member.lower().endswith((".xhtml", ".html", ".htm", ".ncx")):
             continue
-        tree = etree.ElementTree(etree.fromstring(epub.read(member)))
+        tree = etree.ElementTree(fromstring(epub.read(member)))
         for element in tree.getroot().iter():
             if not isinstance(element.tag, str):
                 continue

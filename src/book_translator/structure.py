@@ -15,6 +15,8 @@ from urllib.parse import unquote
 
 from lxml import etree
 
+from book_translator.xmlparse import fromstring
+
 BlockKind = Literal["paragraph", "heading", "verse", "list_item"]
 MatterKind = Literal[
     "cover", "synopsis", "title_page", "credits", "dedication", "about_author", "notes"
@@ -177,7 +179,7 @@ def matter_kind(member: str, data: bytes) -> MatterKind | None:
 
 def _semantic_kind(data: bytes) -> MatterKind | None:
     """Kind of matter declared by `epub:type` on the body or its top-level sections."""
-    body = next((e for e in etree.fromstring(data).iter() if _name(e) == "body"), None)
+    body = next((e for e in fromstring(data).iter() if _name(e) == "body"), None)
     if body is None:
         return None
     for el in [body, *body]:
@@ -239,7 +241,7 @@ def _chapter_starts(
 
 
 def _items(member: str, data: bytes) -> Iterator[_Item]:
-    root = etree.fromstring(data)
+    root = fromstring(data)
     body = next((e for e in root.iter() if _name(e) == "body"), None)
     if body is None:
         return
@@ -325,7 +327,8 @@ def _plain(el: etree._Element) -> str:
 
 
 def _text(el: etree._Element) -> str:
-    return re.sub(r"\s+", " ", _raw(el)).strip()
+    # Collapse only XML whitespace: a no-break space is content and must survive.
+    return re.sub(r"[ \t\r\n\f]+", " ", _raw(el)).strip(" \t\r\n\f")
 
 
 def _verse_text(el: etree._Element) -> str:

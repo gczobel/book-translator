@@ -84,3 +84,15 @@ def test_non_zip_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(EpubError):
         open_epub(bogus)
+
+
+def test_named_html_entities_under_an_xhtml_doctype_open_and_round_trip(tmp_path: Path) -> None:
+    source = FIXTURES / "entities.epub"
+    out = tmp_path / "out.epub"
+
+    epub = open_epub(source)
+    epub.write(out)
+
+    assert members(out) == members(source)
+    texts = [b.text for s in epub.book().chapters[0].scenes for b in s.blocks]
+    assert "Café Rouge — she said & left …" in texts

@@ -9,8 +9,6 @@ from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
-from lxml import etree
-
 from book_translator import __version__
 from book_translator.build import SyncEdits, apply_synchronized_edits
 from book_translator.config import STAGE_MODELS
@@ -20,6 +18,7 @@ from book_translator.epubcheck import Validator, locate
 from book_translator.qa import QAFailedError, plain, require_qa_clean, setting
 from book_translator.tk_gate import OpenTKError, require_no_open_tks
 from book_translator.workspace import DB_NAME, SOURCE_NAME
+from book_translator.xmlparse import fromstring
 
 _DC = "{http://purl.org/dc/elements/1.1/}"
 REPORT_NAME = "epubcheck-report.txt"
@@ -84,7 +83,7 @@ def _rebuild(db: sqlite3.Connection, source: Epub) -> None:
 
 
 def _metadata(source: Epub, tag: str) -> str:
-    root = etree.fromstring(source.read(source.opf_path))
+    root = fromstring(source.read(source.opf_path))
     return " ".join((root.findtext(f".//{_DC}{tag}") or "").split())
 
 
