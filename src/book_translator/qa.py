@@ -211,6 +211,17 @@ def inline_markup(context: QAContext) -> list[Finding]:
     return found
 
 
+@check("open_tk")
+def open_tks(context: QAContext) -> list[Finding]:
+    return [Finding("open_tk", block, f"{tk} is still open") for tk, block in context.open_tks]
+
+
+@check("unresolved_finding")
+def unresolved_findings(context: QAContext) -> list[Finding]:
+    """Fidelity edits that S7 could not settle within its retries."""
+    return [Finding("unresolved_finding", block, why) for block, why in context.unresolved]
+
+
 def length_band(db: sqlite3.Connection) -> tuple[float, float]:
     row = db.execute("select value from settings where key = 'qa_length_band'").fetchone()
     if row is None:
@@ -240,8 +251,17 @@ def load_context(db: sqlite3.Connection, source: Epub, bible: Bible) -> QAContex
         for scene in chapter.scenes
         for b in scene.blocks
     }
+    tks = db.execute("select id, block from tks where resolution is null order by rowid")
+    unresolved = db.execute(
+        "select block, category, reason, old, new from unresolved_findings order by id"
+    )
     return QAContext(
-        sources=sources, targets=dict(targets), bible=bible, length_band=length_band(db)
+        sources=sources,
+        targets=dict(targets),
+        bible=bible,
+        open_tks=[(str(i), str(b)) for i, b in tks],
+        unresolved=[(str(b), f"{c}: {r} ({o!r} -> {n!r})") for b, c, r, o, n in unresolved],
+        length_band=length_band(db),
     )
 
 

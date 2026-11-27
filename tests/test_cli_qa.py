@@ -186,6 +186,32 @@ def test_inline_markup_must_stay_intact_in_every_target_block(
     assert "must open and close" in out
 
 
+def test_an_open_tk_and_an_unresolved_fidelity_finding_are_reported(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    adapter = CountingAdapter()
+    ws = translate(tmp_path, adapter)
+    block = source_ids()[1]
+    tamper(
+        ws,
+        "insert into tks values ('TK-9', ?, 'quiet', 'idiom', 'x', 'y', '[]', 'y', 0.5, 'local',"
+        " null, null)",
+        block,
+    )
+    tamper(
+        ws,
+        "insert into unresolved_findings (stage, block, position, old, new, reason, category)"
+        " values ('post_polish_fidelity', ?, 0, 'quiet', 'calm', 'drift', 'meaning drift')",
+        block,
+    )
+
+    out = qa(ws, adapter, capsys)
+
+    assert findings(ws) == [(block, "open_tk"), (block, "unresolved_finding")]
+    assert "TK-9" in out
+    assert "meaning drift" in out
+
+
 def test_the_length_band_is_configurable(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
