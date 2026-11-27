@@ -1,0 +1,234 @@
+"""Collecting the merge rule's inputs, and the entry point that publishes the decision."""
+
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from agentpr import collect
+from agentpr.collect import AgentPrError
+from agentpr.core import ACTIONS_APP_ID, AGENT_BOT_ID, REQUIRED_CHECKS
+from agentpr.run import run
+from ghapi.identities import OWNER_ID
+
+REPO = "o/r"
+SHA = "1" * 40
+
+
+class FakeApi:
+    """Answers GitHub API paths from a dict. A missing path is a test bug, not a 404."""
+
+    def __init__(self, routes: dict[str, Any]) -> None:
+        self.routes = routes
+        self.requested: list[str] = []
+
+    def get_json(self, path: str) -> Any:
+        self.requested.append(path)
+        return self.routes[path]
+
+    def get_pages(self, path: str) -> list[Any]:
+        self.requested.append(path)
+        return list(self.routes[path])
+
+
+def _raw_pr(**over: Any) -> dict[str, Any]:
+    pr: dict[str, Any] = {
+        "number": 7,
+        "state": "open",
+        "merged": False,
+        "draft": False,
+        "user": {"id": AGENT_BOT_ID, "type": "Bot"},
+        "head": {"sha": SHA, "ref": "agent/x", "repo": {"full_name": REPO}},
+        "base": {"ref": "main", "repo": {"full_name": REPO, "default_branch": "main"}},
+        "labels": [],
+        "changed_files": 1,
+    }
+    pr.update(over)
+    return pr
+
+
+def _check_pages(names: tuple[str, ...] = REQUIRED_CHECKS, conclusion: str = "success") -> dict[str, Any]:
+    runs = [
+        {
+            "id": i,
+            "name": n,
+            "status": "completed",
+            "conclusion": conclusion,
+            "app": {"id": ACTIONS_APP_ID},
+        }
+        for i, n in enumerate(names, start=1)
+    ]
+    return {"total_count": len(runs), "check_runs": runs}
+
+
+def _routes(**over: Any) -> dict[str, Any]:
+    routes: dict[str, Any] = {
+        f"/repos/{REPO}/commits/{SHA}/pulls": [_raw_pr()],
+        f"/repos/{REPO}/pulls/7": _raw_pr(),
+        f"/repos/{REPO}/pulls/7/reviews": [],
+        f"/repos/{REPO}/pulls/7/files": [{"filename": "src/a.py"}],
+        f"/repos/{REPO}/commits/{SHA}/check-runs?per_page=100&page=1": _check_pages(),
+    }
+    routes.update(over)
+    return routes
+
+
+def _run(tmp_path: Path, api: FakeApi, **env: str) -> tuple[int, str]:
+    out = tmp_path / "out"
+    out.write_text("")
+    environment = {"AGENTPR_REPO": REPO, "GITHUB_OUTPUT": str(out), "AGENTPR_SHA": SHA, **env}
+    code = run(environment, api)
+    return code, out.read_text()
+
+
+def test_a_ready_agent_pr_is_published_for_merging(tmp_path: Path) -> None:
+    code, out = _run(tmp_path, FakeApi(_routes()))
+    assert code == 0
+    assert out.splitlines() == ["merge=true", "pr=7", f"sha={SHA}"]
+
+
+def test_the_pr_number_can_be_given_instead_of_the_commit(tmp_path: Path) -> None:
+    env = {"AGENTPR_SHA": "", "AGENTPR_PR": "7"}
+    code, out = _run(tmp_path, FakeApi(_routes()), **env)
+    assert (code, out.splitlines()[0]) == (0, "merge=true")
+
+
+def test_giving_both_or_neither_is_an_error(tmp_path: Path) -> None:
+    assert _run(tmp_path, FakeApi(_routes()), AGENTPR_PR="7")[0] == 2
+    assert _run(tmp_path, FakeApi(_routes()), AGENTPR_SHA="")[0] == 2
+
+
+def test_a_failing_check_is_not_an_error_just_no_merge(tmp_path: Path) -> None:
+    routes = _routes(
+        **{
+            f"/repos/{REPO}/commits/{SHA}/check-runs?per_page=100&page=1": _check_pages(
+                conclusion="failure"
+            )
+        }
+    )
+    code, out = _run(tmp_path, FakeApi(routes))
+    assert (code, out.strip()) == (0, "merge=false")
+
+
+def test_another_authors_pr_is_skipped_without_reading_its_files(tmp_path: Path) -> None:
+    other = _raw_pr(user={"id": OWNER_ID, "type": "User"})
+    api = FakeApi(_routes(**{f"/repos/{REPO}/pulls/7": other}))
+    code, out = _run(tmp_path, api)
+    assert (code, out.strip()) == (0, "merge=false")
+    assert not any("/files" in p or "check-runs" in p for p in api.requested)
+
+
+def test_a_commit_with_no_open_pr_merges_nothing(tmp_path: Path) -> None:
+    api = FakeApi(_routes(**{f"/repos/{REPO}/commits/{SHA}/pulls": []}))
+    assert _run(tmp_path, api) == (0, "merge=false\n")
+
+
+def test_a_pr_whose_head_moved_on_is_not_a_candidate() -> None:
+    moved = _raw_pr(head={"sha": "2" * 40, "ref": "agent/x", "repo": {"full_name": REPO}})
+    api = FakeApi(_routes(**{f"/repos/{REPO}/commits/{SHA}/pulls": [moved]}))
+    assert collect.candidates(api, REPO, SHA) == []
+
+
+def test_a_closed_pr_is_not_a_candidate() -> None:
+    api = FakeApi(_routes(**{f"/repos/{REPO}/commits/{SHA}/pulls": [_raw_pr(state="closed")]}))
+    assert collect.candidates(api, REPO, SHA) == []
+
+
+def test_two_ready_prs_for_one_commit_is_an_error(tmp_path: Path) -> None:
+    two = {f"/repos/{REPO}/commits/{SHA}/pulls": [_raw_pr(), _raw_pr(number=8)]}
+    routes = _routes(
+        **two,
+        **{
+            f"/repos/{REPO}/pulls/8": _raw_pr(number=8),
+            f"/repos/{REPO}/pulls/8/reviews": [],
+            f"/repos/{REPO}/pulls/8/files": [{"filename": "src/b.py"}],
+        },
+    )
+    code, out = _run(tmp_path, FakeApi(routes))
+    assert code == 2
+    assert "merge=true" not in out
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda r: r.update(
+            {f"/repos/{REPO}/pulls/7": _raw_pr(head={"sha": SHA, "ref": "agent/x", "repo": None})}
+        ),
+        lambda r: r.update({f"/repos/{REPO}/pulls/7": _raw_pr(draft="no")}),
+        lambda r: r.update({f"/repos/{REPO}/pulls/7": _raw_pr(labels=None)}),
+        lambda r: r.update({f"/repos/{REPO}/pulls/7": _raw_pr(changed_files=2)}),  # truncated list
+        lambda r: r.update({f"/repos/{REPO}/pulls/7": _raw_pr(changed_files=3000)}),
+        lambda r: r.update(
+            {
+                f"/repos/{REPO}/commits/{SHA}/check-runs?per_page=100&page=1": {
+                    "total_count": 20,
+                    "check_runs": [],
+                }
+            }
+        ),
+        lambda r: r.update({f"/repos/{REPO}/commits/{SHA}/check-runs?per_page=100&page=1": []}),
+    ],
+)
+def test_incomplete_or_odd_data_fails_closed(tmp_path: Path, mutate: Any) -> None:
+    routes = _routes()
+    mutate(routes)
+    code, out = _run(tmp_path, FakeApi(routes))
+    assert code == 2
+    assert "merge=true" not in out
+
+
+def test_a_rename_out_of_a_guarded_path_blocks(tmp_path: Path) -> None:
+    renamed = [{"filename": "src/new.md", "previous_filename": ".github/workflows/ci.yml"}]
+    code, out = _run(tmp_path, FakeApi(_routes(**{f"/repos/{REPO}/pulls/7/files": renamed})))
+    assert (code, out.strip()) == (0, "merge=false")
+
+
+def test_check_runs_are_read_across_pages() -> None:
+    first = _check_pages(REQUIRED_CHECKS[:5])
+    second = _check_pages(REQUIRED_CHECKS[5:])
+    first["total_count"] = second["total_count"] = len(REQUIRED_CHECKS)
+    for i, c in enumerate(second["check_runs"], start=100):
+        c["id"] = i
+    api = FakeApi(
+        {
+            f"/repos/{REPO}/commits/{SHA}/check-runs?per_page=100&page=1": first,
+            f"/repos/{REPO}/commits/{SHA}/check-runs?per_page=100&page=2": second,
+        }
+    )
+    assert len(collect.check_runs(api, REPO, SHA)) == len(REQUIRED_CHECKS)
+
+
+def test_only_the_owners_reviews_count(tmp_path: Path) -> None:
+    reviews = [
+        {"user": {"id": 5}, "state": "CHANGES_REQUESTED"},
+        {"user": None, "state": "CHANGES_REQUESTED"},
+        {"user": {"id": OWNER_ID}, "state": "COMMENTED"},
+    ]
+    code, out = _run(tmp_path, FakeApi(_routes(**{f"/repos/{REPO}/pulls/7/reviews": reviews})))
+    assert (code, out.splitlines()[0]) == (0, "merge=true")
+    blocked = [{"user": {"id": OWNER_ID}, "state": "CHANGES_REQUESTED"}]
+    code, out = _run(tmp_path, FakeApi(_routes(**{f"/repos/{REPO}/pulls/7/reviews": blocked})))
+    assert (code, out.strip()) == (0, "merge=false")
+
+
+def test_a_malformed_environment_fails_closed(tmp_path: Path) -> None:
+    api = FakeApi(_routes())
+    assert _run(tmp_path, api, AGENTPR_REPO="not a repo")[0] == 2
+    assert _run(tmp_path, api, AGENTPR_SHA="abc")[0] == 2
+    assert _run(tmp_path, api, AGENTPR_SHA="", AGENTPR_PR="7; rm")[0] == 2
+    assert run({"AGENTPR_REPO": REPO, "AGENTPR_SHA": SHA}, api) == 2  # no GITHUB_OUTPUT
+    assert run({"AGENTPR_REPO": REPO, "GITHUB_OUTPUT": str(tmp_path / "o")}) == 2
+
+
+def test_an_api_error_fails_closed(tmp_path: Path) -> None:
+    class Broken(FakeApi):
+        def get_json(self, path: str) -> Any:
+            raise TimeoutError
+
+    assert _run(tmp_path, Broken(_routes()))[0] == 2
+
+
+def test_collect_error_is_importable() -> None:
+    with pytest.raises(AgentPrError):
+        collect.require_repo("..", "x")
