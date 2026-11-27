@@ -7,8 +7,17 @@ on:
 # Least privilege by default; each job asks for what it needs (ADR 0005).
 permissions: {}
 
+# Layout: each worker job does the work; each required check is a separate
+# aggregator job with a name unique across workflows. The aggregator fails
+# unless every upstream job succeeded, so a skipped, cancelled or neutral
+# result can never pass. Required checks (see the ruleset): lint, typecheck,
+# test, e2e, epubcheck.
+#
+# The aggregator script is repeated on purpose. Calling a shared action or
+# workflow would need a checkout, so a PR could change the gate it is judged by.
+# Do not factor it out.
 jobs:
-  test:
+  run-lint:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -24,4 +33,122 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
+
+  lint:
+    name: lint
+    needs: [run-lint]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require every upstream job to have succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "upstream results: $RESULTS"
+          [[ -n "$RESULTS" ]] || exit 1
+          for r in $RESULTS; do [[ "$r" == success ]] || exit 1; done
+
+  run-typecheck:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.11.21"
+          checksum: "8c88519b0ef0af9801fcdee419bbb12116bd9e6b18e162ae093c932d8b264050"
+      - run: uv sync --locked
+      - run: uv run mypy
+
+  typecheck:
+    name: typecheck
+    needs: [run-typecheck]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require every upstream job to have succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "upstream results: $RESULTS"
+          [[ -n "$RESULTS" ]] || exit 1
+          for r in $RESULTS; do [[ "$r" == success ]] || exit 1; done
+
+  run-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.11.21"
+          checksum: "8c88519b0ef0af9801fcdee419bbb12116bd9e6b18e162ae093c932d8b264050"
+      - run: uv sync --locked
       - run: uv run pytest
+
+  test:
+    name: test
+    needs: [run-test]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require every upstream job to have succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "upstream results: $RESULTS"
+          [[ -n "$RESULTS" ]] || exit 1
+          for r in $RESULTS; do [[ "$r" == success ]] || exit 1; done
+
+  # Placeholder: filled in place when the translator's end-to-end tests land.
+  run-e2e:
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - run: echo "e2e placeholder; real end-to-end tests land with the translator"
+
+  e2e:
+    name: e2e
+    needs: [run-e2e]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require every upstream job to have succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "upstream results: $RESULTS"
+          [[ -n "$RESULTS" ]] || exit 1
+          for r in $RESULTS; do [[ "$r" == success ]] || exit 1; done
+
+  # Placeholder: filled in place when the translator produces EPUBs to validate.
+  run-epubcheck:
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - run: echo "epubcheck placeholder; EPUB validation lands with the translator"
+
+  epubcheck:
+    name: epubcheck
+    needs: [run-epubcheck]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require every upstream job to have succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "upstream results: $RESULTS"
+          [[ -n "$RESULTS" ]] || exit 1
+          for r in $RESULTS; do [[ "$r" == success ]] || exit 1; done
