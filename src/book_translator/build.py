@@ -5,7 +5,8 @@ agree with it: package metadata, `xml:lang`, chapter titles and notes. Nothing i
 renamed except what is asked for, and an empty `SyncEdits` changes nothing.
 """
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 
 from lxml import etree
 
@@ -27,6 +28,7 @@ class SyncEdits:
     description: str | None = None
     language: str | None = None
     translator: str | None = None
+    chapter_titles: Mapping[str, str] = field(default_factory=dict)  # source label -> target
 
 
 def apply_synchronized_edits(epub: Epub, edits: SyncEdits) -> None:
@@ -34,6 +36,8 @@ def apply_synchronized_edits(epub: Epub, edits: SyncEdits) -> None:
     _edit_package(epub, edits)
     if edits.title is not None:
         _edit_ncx_title(epub, edits.title)
+    if edits.chapter_titles:
+        _edit_titles(epub, edits.chapter_titles)
     if edits.language is not None:
         for member in epub.spine():
             tree = etree.ElementTree(etree.fromstring(epub.read(member)))
@@ -74,3 +78,27 @@ def _edit_ncx_title(epub: Epub, title: str) -> None:
             for text in tree.getroot().iterfind(f"{{{_NCX}}}docTitle/{{{_NCX}}}text"):
                 text.text = title
             epub.store(member, tree)
+
+
+_LABELLED = {"h1", "h2", "h3", "h4", "h5", "h6", "a", "title", "text"}
+
+
+def _edit_titles(epub: Epub, titles: Mapping[str, str]) -> None:
+    """Rewrite each source chapter title wherever it stands as a label, heading or `title`."""
+    for member in epub.names:
+        if not member.lower().endswith((".xhtml", ".html", ".htm", ".ncx")):
+            continue
+        tree = etree.ElementTree(etree.fromstring(epub.read(member)))
+        for element in tree.getroot().iter():
+            if not isinstance(element.tag, str):
+                continue
+            if element.get("title") in titles:
+                element.set("title", titles[str(element.get("title"))])
+            label = " ".join("".join(element.itertext()).split())
+            if (
+                etree.QName(element).localname in _LABELLED
+                and len(element) == 0
+                and label in titles
+            ):
+                element.text = titles[label]
+        epub.store(member, tree)
