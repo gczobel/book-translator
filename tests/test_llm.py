@@ -73,7 +73,7 @@ def test_a_repeated_call_is_served_from_the_cache_at_zero_cost(tmp_path: Path) -
 @pytest.mark.parametrize(
     "change",
     [
-        {"model": "anthropic:claude-opus-4-5"},
+        {"model": "anthropic:claude-opus-5-5"},
         {"prompt_version": "v2"},
         {"source_text": "Adiós."},
         {"stage": "polish"},
