@@ -84,6 +84,17 @@ def _banned(bible: Bible) -> list[str]:
     return [v for g in bible.glossary for v in g.banned_variants]
 
 
+def check_rewrite(old: str, new: str, bible: Bible, where: str) -> None:
+    """Raise ValueError unless rewriting `old` as `new` keeps every locked rendering and brings
+    in no banned variant."""
+    for rendering in _renderings(bible):
+        if rendering and new.count(rendering) < old.count(rendering):
+            raise ValueError(f"{where}: it would change the locked rendering {rendering!r}")
+    for variant in _banned(bible):
+        if variant and variant in new and variant not in old:
+            raise ValueError(f"{where}: it brings in the banned variant {variant!r}")
+
+
 def _apply(edit: Edit, texts: dict[int, str], bible: Bible) -> None:
     """Apply one edit to a block's target texts, or raise ValueError saying why it cannot be."""
     where = f"edit of block {edit.block}, target {edit.position}"
@@ -92,12 +103,7 @@ def _apply(edit: Edit, texts: dict[int, str], bible: Bible) -> None:
     text = texts[edit.position]
     if edit.old not in text:
         raise ValueError(f"{where}: the old text {edit.old!r} is not in the target block")
-    for rendering in _renderings(bible):
-        if rendering and edit.new.count(rendering) < edit.old.count(rendering):
-            raise ValueError(f"{where}: it would change the locked rendering {rendering!r}")
-    for variant in _banned(bible):
-        if variant and variant in edit.new and variant not in edit.old:
-            raise ValueError(f"{where}: it brings in the banned variant {variant!r}")
+    check_rewrite(edit.old, edit.new, bible, where)
     texts[edit.position] = text.replace(edit.old, edit.new, 1)
 
 
