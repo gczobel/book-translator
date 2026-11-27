@@ -32,8 +32,10 @@ code from something that may have been tricked.
   auto-merge, escalation issues. Each job mints a one-hour token limited to the permissions it needs.
 - **Agent App**: the identity agents use to open code PRs, including local agent sessions, through a
   small helper that mints a one-hour token per session. No job ever arms its PRs automatically.
-- Neither App has the Workflows permission or administration rights, and neither is a ruleset bypass
-  actor. App keys and the Anthropic key live in environments that only `main` can use.
+- Neither App has the Workflows permission or administration rights. No App is a bypass actor on
+  `main` or on any ruleset that protects history; the maintenance App is a bypass actor only on
+  `tags-create`, which cannot affect tag immutability. App keys and the Anthropic key live in
+  environments that only `main` can use.
 
 ## Policy
 
@@ -66,7 +68,13 @@ code from something that may have been tricked.
   - Each is pinned to the GitHub Actions app as its source.
   - Their names are unique across workflows.
 - **Releases**: release-please, using the maintenance App, with blank squash commit bodies.
-  - A tag ruleset on `v*` blocks moving or deleting tags and lets only the maintenance App create them.
+  - Two tag rulesets on `v*` (decided in #14): `tags-immutable` blocks moving or deleting tags and has
+    no bypass actors; `tags-create` blocks creation and lets only the maintenance App bypass. A bypass
+    actor skips every rule of the ruleset it is listed on, so the split lets the App create tags
+    without ever being able to move or delete one. The rulesets live in `.github/rulesets/` and are
+    applied with `.github/scripts/apply-rulesets.sh`.
+    The same script sets the repository Actions setting that makes every fork PR run wait for the
+    owner's approval (`all_external_contributors`).
   - A job verifies that each new tag points at a release-please merge on `main`.
 - **Repairs**: when a Dependabot or release PR fails CI, three jobs run.
   1. **agent**: only the Anthropic key; read-only token; no caches; restricted network; Claude Code
