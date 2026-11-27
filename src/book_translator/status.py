@@ -19,6 +19,7 @@ STAGES = (
     "tk_resolution",
     "fidelity",
     "polish",
+    "post_polish_fidelity",
 )
 FINISHED = ("done", "nothing found")
 

@@ -11,6 +11,9 @@ DEFAULT_CAP_USD = 10.00
 # A TK whose resolver is less confident than this is escalated to the human.
 TK_CONFIDENCE_THRESHOLD = 0.7
 
+# How many times S7 corrects and re-checks a scene whose polish drifted (init --fidelity-retries).
+DEFAULT_FIDELITY_RETRIES = 2
+
 # Model string per stage (pydantic-ai style "provider:model"). Opus for whole-book consolidation
 # and TK resolution, Sonnet elsewhere.
 STAGE_MODELS: dict[str, str] = {
