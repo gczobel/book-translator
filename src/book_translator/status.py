@@ -9,7 +9,15 @@ from book_translator.epub import open_epub
 from book_translator.workspace import DB_NAME, SOURCE_NAME
 
 # Pipeline order of the stages that exist so far; later stages are appended here.
-STAGES = ("research", "extraction", "consolidation", "completion", "enrichment", "draft")
+STAGES = (
+    "research",
+    "extraction",
+    "consolidation",
+    "completion",
+    "enrichment",
+    "draft",
+    "tk_resolution",
+)
 FINISHED = ("done", "nothing found")
 
 

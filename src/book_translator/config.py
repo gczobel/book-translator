@@ -8,6 +8,8 @@ from dataclasses import dataclass
 
 VARIETIES = ("peninsular", "rioplatense", "neutral")
 DEFAULT_CAP_USD = 10.00
+# A TK whose resolver is less confident than this is escalated to the human.
+TK_CONFIDENCE_THRESHOLD = 0.7
 
 # Model string per stage (pydantic-ai style "provider:model"). Opus for whole-book consolidation
 # and TK resolution, Sonnet elsewhere.

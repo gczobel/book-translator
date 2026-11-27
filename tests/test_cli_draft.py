@@ -42,6 +42,8 @@ class DraftAdapter(Part2Adapter):
         self.draft_fail_after = fail_after
 
     def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+        if request.stage == "tk_resolution":  # covered in test_cli_resolve.py; here, unsure
+            return RawAnswer('{"resolution": "x", "confidence": 0.0}')
         if request.stage != "draft":
             return super().complete(request, key, attempt)
         if self.draft_fail_after is not None and len(self.draft_requests) >= self.draft_fail_after:
@@ -331,5 +333,5 @@ def test_status_reports_the_draft_stage(ws: Path, capsys: pytest.CaptureFixture[
     main(["status", str(ws)])
 
     out = capsys.readouterr().out
-    assert "Stage: draft (done)" in out
+    assert "Stage: tk_resolution (done)" in out
     assert "nothing left to run" in out
