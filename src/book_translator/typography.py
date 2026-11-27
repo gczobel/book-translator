@@ -197,6 +197,43 @@ def inverted_mark_pairs(context: QAContext) -> list[Finding]:
     return found
 
 
+NBSP = " "
+_ENGLISH_DECIMAL = re.compile(r"(?<![\d.,])(\d{1,3}(?:,\d{3})+)\.(\d+)")
+_GROUPED = re.compile(r"(?<![\d.,])(\d{1,3}(?:([.,])\d{3}){2,})(?!\d)")
+_PERCENT = re.compile(r"(?<=\d) ?%")
+
+
+def _group(digits: str) -> str:
+    """Digits grouped in threes with a no-break space from five digits up (N2)."""
+    if len(digits) < 5:
+        return digits
+    head = len(digits) % 3
+    groups = ([digits[:head]] if head else []) + [
+        digits[i : i + 3] for i in range(head, len(digits), 3)
+    ]
+    return NBSP.join(groups)
+
+
+def numbers(text: str) -> str:
+    """N2, N6 (3.7, 5.4): `1,000.5` is `1000,5`, groups of three digits are joined by a no-break
+    space (`8.327.451` and `8,327,451` are `8 327 451`), and `%` follows its number after a
+    no-break space. A single group (`1.200`) may be a decimal or a thousand: it is left alone."""
+    text = _ENGLISH_DECIMAL.sub(
+        lambda m: _group(re.sub(r"\D", "", m.group(1))) + "," + m.group(2), text
+    )
+    text = _GROUPED.sub(lambda m: _group(re.sub(r"\D", "", m.group(1))), text)
+    return _PERCENT.sub(NBSP + "%", text)
+
+
+@check("number_format")
+def number_format(context: QAContext) -> list[Finding]:
+    return [
+        Finding("number_format", block, "its numbers are not set as N2 and N6 ask")
+        for block, texts in context.targets.items()
+        if any(numbers(mask(t)[0]) != mask(t)[0] for t in texts)
+    ]
+
+
 @check("raya")
 def raya_layout(context: QAContext) -> list[Finding]:
     """What the normaliser could not settle: a dash that is not a raya, rayas that do not pair up
@@ -218,6 +255,7 @@ RULES: list[tuple[str, Callable[[str], str]]] = [
     ("quotes", quotes),
     ("raya", raya),
     ("inverted_marks", inverted_marks),
+    ("numbers", numbers),
 ]
 
 

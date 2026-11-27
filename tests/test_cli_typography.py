@@ -96,3 +96,24 @@ def test_a_question_or_exclamation_lacking_its_opener_gets_one_only_when_unambig
     assert (BLOCK, "inverted_marks") in findings(ws)  # the partial question needs a person
     assert normalised(ws, cases[0][1], adapter, capsys) == cases[0][1]
     assert (BLOCK, "inverted_marks") not in findings(ws)
+
+
+def test_numbers_use_a_decimal_comma_and_spaced_thousands_and_percent_signs(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+    nb = " "
+    cases = [
+        (
+            "Eran 1,000.5 y 8,327,451 y 8.327.451 personas.",
+            f"Eran 1000,5 y 8{nb}327{nb}451 y 8{nb}327{nb}451 personas.",
+        ),
+        (
+            "El 25% y el 3,1416 en el año 2001 con 1.200 tardes.",
+            f"El 25{nb}% y el 3,1416 en el año 2001 con 1.200 tardes.",
+        ),
+    ]
+    for text, expected in cases:
+        assert normalised(ws, text, adapter, capsys) == expected  # N2, N3, N6
+        assert normalised(ws, expected, adapter, capsys) == expected
+    assert findings(ws) == []
