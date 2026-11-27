@@ -1,0 +1,32 @@
+[project]
+name = "book-translator"
+version = "0.1.0"
+description = "Multi-pass literary book translator: EPUB in, translated EPUB out, LLM doing the human work"
+authors = [
+    { name = "Gustavo", email = "754466+gczobel@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+book-translator = "book_translator:main"
+
+[build-system]
+requires = ["uv_build>=0.11.21,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.6",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

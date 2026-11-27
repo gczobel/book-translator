@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+.env
+# books and working data are never committed
+*.epub
+*.mobi
+*.azw3
+.work/
+.scratch/
