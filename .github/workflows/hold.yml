@@ -1,0 +1,56 @@
+name: hold
+
+# `hold` is a label the owner puts on a PR from a phone to stop it merging. The required
+# check fails while the label is present. The labels are read live from the API, so a re-run
+# sees the current state, not the state when the event fired.
+#
+# `pull_request_target` runs this workflow from the base branch (main), so a PR can't edit
+# the check that judges it. Nothing from the PR is checked out or run.
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] the PR is never checked out; see above
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+# Least privilege by default; each job asks for what it needs (ADR 0005).
+permissions: {}
+
+# The last event wins; every run reads the labels fresh anyway.
+concurrency:
+  group: hold-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  run-hold:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Fail if the PR carries the hold label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Any failure to read the labels fails the step, so the check fails closed.
+          labels=$(gh api --paginate "repos/${REPO}/issues/${PR}/labels" --jq '.[].name')
+          if printf '%s\n' "$labels" | grep -qx 'hold'; then
+            echo "This PR is on hold. Remove the 'hold' label to let it merge."
+            exit 1
+          fi
+          echo "No hold label."
+
+  # The required check. Fails unless the job above succeeded; skipped or cancelled never passes.
+  hold:
+    name: hold
+    needs: [run-hold]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require every upstream job to have succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "upstream results: $RESULTS"
+          [[ -n "$RESULTS" ]] || exit 1
+          for r in $RESULTS; do [[ "$r" == success ]] || exit 1; done

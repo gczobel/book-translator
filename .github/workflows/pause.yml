@@ -1,0 +1,63 @@
+name: pause
+
+# The pause switch. Every unattended workflow calls this first and only proceeds when
+#
+#     needs.<gate>.outputs.paused == 'false'
+#
+# The comparison must be exactly that: if this workflow crashes the output is empty, which
+# is not 'false', so callers stay stopped. Example:
+#
+#   jobs:
+#     gate:
+#       permissions:
+#         contents: read   # a called workflow can't exceed its caller's permissions
+#       uses: ./.github/workflows/pause.yml
+#     work:
+#       needs: [gate]
+#       if: ${{ needs.gate.outputs.paused == 'false' }}
+#
+# The owner sets the repository variable PAUSE to `true` to stop everything and back to
+# `false` to resume. Anything else, or no variable at all, counts as "can't be read": the
+# workflow reports paused and opens a ready-for-human issue through the escalation job.
+# Callers run in the main context, as the escalation job's environment requires.
+on:
+  workflow_call:
+    outputs:
+      paused:
+        description: "'false' only when automation may run; test for exactly 'false'"
+        value: ${{ jobs.read.outputs.paused }}
+  # Manual run, for the owner to check the switch and the escalation (live check, #27).
+  workflow_dispatch:
+
+# Least privilege by default; each job asks for what it needs (ADR 0005).
+permissions: {}
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      state: ${{ steps.pause.outputs.state }}
+      paused: ${{ steps.pause.outputs.paused }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - id: pause
+        run: python3 -m pause
+        env:
+          PYTHONPATH: .github/scripts
+          PAUSE_VALUE: ${{ vars.PAUSE }}
+
+  # Tell the owner when the switch can't be read, including when the read job itself failed
+  # (its state is then empty). A deliberate `true` is not an alarm.
+  escalate:
+    needs: [read]
+    if: ${{ always() && needs.read.outputs.state != 'run' && needs.read.outputs.state != 'paused' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/escalate.yml # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+    with:
+      reason: pause-unreadable
+      key: pause-unreadable
