@@ -6,6 +6,7 @@ content below does. Nothing here is a real book.
 """
 
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -163,15 +164,139 @@ FRAGMENT_2 = page("<p>More of two.</p>\n")
 # No usable NCX entries: chapters are found from the headings alone.
 NO_TOC_NCX = NCX.split("<navMap>")[0] + "<navMap/>\n</ncx>\n"
 
+# Notes: references carry `rf` ids and point at `nt` ids on a notes page (EPUB 2, no epub:type).
+NOTES_OPF = OPF.replace(
+    '<item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/>',
+    '<item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/>\n'
+    '    <item id="n" href="notes.xhtml" media-type="application/xhtml+xml"/>',
+).replace('<itemref idref="c2"/>', '<itemref idref="c2"/>\n    <itemref idref="n"/>')
+NOTES_1 = page('<h1>One</h1>\n<p>Born in the town.<a id="rf1" href="notes.xhtml#nt1">[1]</a></p>\n')
+NOTES_2 = page(
+    '<h1>Two</h1>\n<p>Said the <i>maire</i>.<a id="rf2" href="notes.xhtml#nt2">[2]</a> '
+    "Then left.</p>\n"
+)
+NOTES_PAGE = page(
+    "<h2>Notes</h2>\n"
+    '<p id="nt1">1. A small town.<a href="ch1.xhtml#rf1">back</a></p>\n'
+    '<p id="nt2">2. The mayor.<a href="ch2.xhtml#rf2">back</a></p>\n'
+)
 
-def write(name: str, files: dict[str, bytes | str], *, ncx: str = NCX, opf: str = OPF) -> None:
+# Front and back matter told apart by file name and spine position alone (EPUB 2, no
+# epub:type): cover, synopsis, title page, credits and an untitled dedication in front;
+# notes and about the author behind the chapters.
+MATTER_FILES = [
+    ("cover", "cover.xhtml"),
+    ("syn", "synopsis.xhtml"),
+    ("tp", "titlepage.xhtml"),
+    ("cr", "credits.xhtml"),
+    ("ded", "dedication.xhtml"),
+    ("c1", "ch1.xhtml"),
+    ("c2", "ch2.xhtml"),
+    ("n", "notes.xhtml"),
+    ("au", "about-the-author.xhtml"),
+]
+MATTER_OPF = OPF.replace(
+    '    <item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>\n'
+    '    <item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/>\n',
+    "".join(
+        f'    <item id="{i}" href="{h}" media-type="application/xhtml+xml"/>\n'
+        for i, h in MATTER_FILES
+    ),
+).replace(
+    '    <itemref idref="c1"/>\n    <itemref idref="c2"/>\n',
+    "".join(f'    <itemref idref="{i}"/>\n' for i, _ in MATTER_FILES),
+)
+MATTER_COVER = page('<p><img src="images/dot.png" alt="Cover"/></p>\n')
+MATTER_SYNOPSIS = page("<h1>Synopsis</h1>\n<p>A quiet town keeps a loud secret.</p>\n")
+MATTER_TITLE_PAGE = page('<h1>Synthetic Tale</h1>\n<p class="author">Nobody</p>\n')
+MATTER_CREDITS = page("<p>First published as Un Cuento. Copyright Nobody.</p>\n")
+MATTER_DEDICATION = page("<p><i>For the one who stayed.</i></p>\n")
+MATTER_ABOUT = page("<h2>About the author</h2>\n<p>Nobody lives nowhere.</p>\n")
+
+# EPUB 3 with semantic markup: file names say nothing, `epub:type` does. Chapters come from
+# the `nav.xhtml` (no NCX); notes use `noteref` references and `footnote` asides.
+EPUB3_OPF = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Synthetic Tale</dc:title>
+    <dc:language>en</dc:language>
+    <dc:identifier id="bookid">urn:uuid:00000000-0000-0000-0000-000000000003</dc:identifier>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="img" href="images/dot.png" media-type="image/png"/>
+"""
+EPUB3_FILES = [f"part000{n}.xhtml" for n in range(1, 8)]
+EPUB3_OPF += (
+    "".join(
+        f'    <item id="p{n}" href="{h}" media-type="application/xhtml+xml"/>\n'
+        for n, h in enumerate(EPUB3_FILES, 1)
+    )
+    + "  </manifest>\n  <spine>\n"
+    + "".join(f'    <itemref idref="p{n}"/>\n' for n in range(1, 8))
+    + "  </spine>\n</package>\n"
+)
+EPUB3_NAV = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>Contents</title></head>
+<body>
+  <nav epub:type="toc"><h1>Contents</h1>
+    <ol>
+      <li><a href="part0004.xhtml">Chapter One</a></li>
+      <li><a href="part0005.xhtml">Chapter Two</a></li>
+    </ol>
+  </nav>
+</body>
+</html>
+"""
+
+
+def sem(kind: str, body: str) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<html xmlns="http://www.w3.org/1999/xhtml" '
+        'xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en">\n'
+        f'<head><title>T</title></head>\n<body><section epub:type="{kind}">\n{body}</section>'
+        "</body>\n</html>\n"
+    )
+
+
+EPUB3_PARTS = {
+    "part0001.xhtml": sem("cover", '<p><img src="images/dot.png" alt="Cover"/></p>\n'),
+    "part0002.xhtml": sem("titlepage", "<h1>Synthetic Tale</h1>\n"),
+    "part0003.xhtml": sem("dedication", "<p>For the one who stayed.</p>\n"),
+    "part0004.xhtml": sem(
+        "chapter",
+        "<h1>One</h1>\n<p>Born in the town."
+        '<a epub:type="noteref" href="part0006.xhtml#fn1">1</a></p>\n',
+    ),
+    "part0005.xhtml": sem("chapter", "<h1>Two</h1>\n<p>Then left.</p>\n"),
+    "part0006.xhtml": sem(
+        "endnotes", '<aside epub:type="footnote" id="fn1"><p>1. A small town.</p></aside>\n'
+    ),
+    "part0007.xhtml": sem("colophon", "<p>Translated by a machine.</p>\n"),
+}
+
+
+def write(
+    name: str,
+    files: Mapping[str, bytes | str],
+    *,
+    ncx: str | None = NCX,
+    opf: str = OPF,
+    nav: str | None = None,
+) -> None:
     members: dict[str, bytes | str] = {
         "META-INF/container.xml": CONTAINER,
         "OEBPS/content.opf": opf,
-        "OEBPS/toc.ncx": ncx,
+        "OEBPS/toc.ncx": ncx or "",
         "OEBPS/style.css": CSS,
         "OEBPS/images/dot.png": PNG,
     }
+    if ncx is None:
+        del members["OEBPS/toc.ncx"]
+    if nav is not None:
+        members["OEBPS/nav.xhtml"] = nav
     members.update({f"OEBPS/{k}": v for k, v in files.items()})
     with zipfile.ZipFile(HERE / name, "w") as z:
         info = zipfile.ZipInfo("mimetype", STAMP)
@@ -195,6 +320,27 @@ def main() -> None:
         ncx=FRAGMENT_NCX,
     )
     write("no-toc.epub", {"ch1.xhtml": HR_1, "ch2.xhtml": HR_2}, ncx=NO_TOC_NCX)
+    write(
+        "notes.epub",
+        {"ch1.xhtml": NOTES_1, "ch2.xhtml": NOTES_2, "notes.xhtml": NOTES_PAGE},
+        opf=NOTES_OPF,
+    )
+    write(
+        "matter.epub",
+        {
+            "cover.xhtml": MATTER_COVER,
+            "synopsis.xhtml": MATTER_SYNOPSIS,
+            "titlepage.xhtml": MATTER_TITLE_PAGE,
+            "credits.xhtml": MATTER_CREDITS,
+            "dedication.xhtml": MATTER_DEDICATION,
+            "ch1.xhtml": NOTES_1,
+            "ch2.xhtml": NOTES_2,
+            "notes.xhtml": NOTES_PAGE,
+            "about-the-author.xhtml": MATTER_ABOUT,
+        },
+        opf=MATTER_OPF,
+    )
+    write("epub3.epub", EPUB3_PARTS, opf=EPUB3_OPF, nav=EPUB3_NAV, ncx=None)
 
 
 if __name__ == "__main__":

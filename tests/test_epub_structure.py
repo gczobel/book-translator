@@ -96,3 +96,76 @@ def test_blocks_keep_a_stable_id_and_their_position() -> None:
     assert len({b.id for b in blocks}) == len(blocks)
     assert blocks == [b for c in again.chapters for s in c.scenes for b in s.blocks]
     assert blocks[0].id == "OEBPS/ch1.xhtml#0"
+
+
+def test_notes_are_linked_to_their_references_by_rf_nt_ids() -> None:
+    book = open_epub(FIXTURES / "notes.epub").book()
+
+    by_id = {b.id: b for c in book.chapters for s in c.scenes for b in s.blocks}
+    by_id |= {b.id: b for p in book.back for b in p.blocks}
+    linked = [(by_id[n.reference].text, by_id[n.block].text) for n in book.notes]
+    assert linked == [
+        ("Born in the town.[1]", "1. A small town.back"),
+        ("Said the maire.[2] Then left.", "2. The mayor.back"),
+    ]
+
+
+def test_front_and_back_matter_get_a_kind_from_file_name_and_spine_position() -> None:
+    book = open_epub(FIXTURES / "matter.epub").book()
+
+    assert [p.kind for p in book.front] == [
+        "cover",
+        "synopsis",
+        "title_page",
+        "credits",
+        "dedication",
+    ]
+    assert [p.kind for p in book.back] == ["notes", "about_author"]
+    assert [c.title for c in book.chapters] == ["One", "Two"]
+    assert [b.text for b in book.front[3].blocks] == [
+        "First published as Un Cuento. Copyright Nobody."
+    ]
+
+
+def test_an_untitled_section_is_detected_without_a_title() -> None:
+    book = open_epub(FIXTURES / "matter.epub").book()
+
+    dedication = book.front[4]
+    assert dedication.title is None
+    assert [b.text for b in dedication.blocks] == ["For the one who stayed."]
+    assert book.front[1].title == "Synopsis"
+    assert not any(b.text for b in book.front[0].blocks)
+
+
+def test_notes_in_a_notes_part_stay_linked_and_leave_the_chapters() -> None:
+    book = open_epub(FIXTURES / "matter.epub").book()
+
+    note_blocks = {b.id: b.text for b in book.back[0].blocks}
+    assert [note_blocks[n.block] for n in book.notes] == [
+        "1. A small town.back",
+        "2. The mayor.back",
+    ]
+    assert all("Notes" not in [b.text for s in c.scenes for b in s.blocks] for c in book.chapters)
+
+
+def test_epub3_semantics_classify_matter_whatever_the_file_names() -> None:
+    book = open_epub(FIXTURES / "epub3.epub").book()
+
+    assert [p.kind for p in book.front] == ["cover", "title_page", "dedication"]
+    assert [p.kind for p in book.back] == ["notes", "credits"]
+    assert [b.text for b in book.front[2].blocks] == ["For the one who stayed."]
+
+
+def test_epub3_noteref_links_to_a_footnote() -> None:
+    book = open_epub(FIXTURES / "epub3.epub").book()
+
+    note = book.notes[0]
+    reference = book.chapters[0].scenes[0].blocks[1]
+    assert note.reference == reference.id
+    assert [b.text for b in book.back[0].blocks if b.id == note.block] == ["1. A small town."]
+
+
+def test_epub3_chapters_come_from_the_nav_document() -> None:
+    book = open_epub(FIXTURES / "epub3.epub").book()
+
+    assert [c.title for c in book.chapters] == ["Chapter One", "Chapter Two"]
