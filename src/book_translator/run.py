@@ -14,6 +14,7 @@ from book_translator.epub import open_epub
 from book_translator.gates import ANALYSIS, skip_analysis_review, write_analysis_review
 from book_translator.llm import LLM, Adapter
 from book_translator.search import Search
+from book_translator.stages import draft as drafting
 from book_translator.stages.complete import completion_request, completion_schema, merged
 from book_translator.stages.consolidate import consolidation_request
 from book_translator.stages.enrich import (
@@ -57,6 +58,7 @@ def run(workspace: Path, adapter: Adapter, search: Search | None = None) -> None
         _completion(db, llm)
         _enrichment(db, llm, search)
         _analysis_gate(db, workspace)
+        _draft(db, workspace, llm)
     finally:
         db.close()
 
@@ -142,6 +144,18 @@ def _enrichment(db: sqlite3.Connection, llm: LLM, search: Search | None) -> None
         db.execute("delete from bible")
         db.execute("insert into bible values (?)", (enriched.model_dump_json(),))
     _set_status(db, "enrichment", "done")
+
+
+def _draft(db: sqlite3.Connection, workspace: Path, llm: LLM) -> None:
+    opened = _status(db, f"{ANALYSIS} gate") in ("approved", "skipped")
+    if not opened or _status(db, "draft") == "done":
+        return
+    with db:
+        drafting.create_tables(db)
+    _set_status(db, "draft", "running")
+    bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
+    drafting.draft(db, llm, open_epub(workspace / SOURCE_NAME), bible, STAGE_MODELS["draft"])
+    _set_status(db, "draft", "done")
 
 
 def _analysis_gate(db: sqlite3.Connection, workspace: Path) -> None:

@@ -54,6 +54,12 @@ def part2(**overrides: object) -> dict[str, object]:
     return out
 
 
+def echo_draft(request: LLMRequest) -> str:
+    """A drafter that carries every block of the passage over unchanged."""
+    passage = json.loads(request.source_text)["passage"]
+    return json.dumps({"blocks": [{"source": b["id"], "targets": [b["text"]]} for b in passage]})
+
+
 class Part2Adapter:
     """Replay for extraction, a fixed part-1 bible, and recorded completions (one per attempt)."""
 
@@ -73,6 +79,8 @@ class Part2Adapter:
         self.completion_requests: list[LLMRequest] = []
 
     def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+        if request.stage == "draft":  # covered in test_cli_draft.py
+            return RawAnswer(echo_draft(request))
         if request.stage == "enrichment":  # covered in test_cli_enrichment.py
             return RawAnswer("{}")
         if self._fail_after is not None and self.calls >= self._fail_after:
