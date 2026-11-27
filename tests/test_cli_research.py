@@ -7,7 +7,7 @@ from pathlib import Path
 from book_translator import main
 from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
-from book_translator.llm import request_key
+from book_translator.llm import LLMRequest, RawAnswer, request_key
 from book_translator.replay import ReplayAdapter
 from book_translator.search import Finding
 from book_translator.stages.extract import extraction_request
@@ -28,6 +28,33 @@ class FixtureSearch:
         return [f for f in self._findings if established or f.rendering is None]
 
 
+class _WithBible(ReplayAdapter):
+    """Replay for extraction, plus a minimal bible for the consolidation that follows."""
+
+    def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+        if request.stage == "consolidation":
+            return RawAnswer(MINIMAL_BIBLE)
+        return super().complete(request, key, attempt)
+
+
+MINIMAL_BIBLE = json.dumps(
+    {
+        "profile": {
+            "genre": "g",
+            "period": "p",
+            "setting": "s",
+            "narrator": "n",
+            "narrator_distance": "d",
+            "tense": "t",
+            "narrative_register": "r",
+            "foreignness": "f",
+        },
+        "style": {"thoughts": "t", "numbers": "n", "titles": "t"},
+        "cast": [],
+    }
+)
+
+
 def adapter() -> ReplayAdapter:
     source = open_epub(EPUB)
     out = {}
@@ -35,7 +62,7 @@ def adapter() -> ReplayAdapter:
         text = "\n".join(source.encode_block(b.id).text for s in chapter.scenes for b in s.blocks)
         key = request_key(extraction_request(STAGE_MODELS["analysis"], text))
         out[key] = json.dumps({"names": [], "places": [], "phrases": []})
-    return ReplayAdapter(out)
+    return _WithBible(out)
 
 
 def init(tmp_path: Path, *flags: str) -> Path:
