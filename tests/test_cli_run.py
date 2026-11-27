@@ -161,7 +161,7 @@ def test_run_builds_the_production_adapter_when_the_key_is_set(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     built: list[object] = []
 
-    def fake_run(path: Path, adapter: object) -> None:
+    def fake_run(path: Path, adapter: object, search: object = None) -> None:
         built.append(adapter)
 
     monkeypatch.setattr("book_translator.cli.run", fake_run)
