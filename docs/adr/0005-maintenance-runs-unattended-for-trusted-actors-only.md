@@ -34,7 +34,8 @@ code from something that may have been tricked.
   small helper that mints a one-hour token per session. No job ever arms its PRs automatically.
 - Neither App has the Workflows permission or administration rights. No App is a bypass actor on
   `main` or on any ruleset that protects history; the maintenance App is a bypass actor only on
-  `tags-create`, which cannot affect tag immutability. App keys and the Anthropic key live in environments that only `main` can use.
+  `tags-create`, which cannot affect tag immutability. App keys and the Anthropic key live in
+  environments that only `main` can use.
 
 ## Policy
 
