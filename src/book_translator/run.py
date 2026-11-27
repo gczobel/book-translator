@@ -11,11 +11,13 @@ from book_translator.budget import Budget
 from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
 from book_translator.llm import LLM, Adapter
+from book_translator.search import Search
 from book_translator.stages.extract import Extraction, extraction_request
+from book_translator.stages.research import book_title, research
 from book_translator.workspace import DB_NAME, SOURCE_NAME
 
 
-def run(workspace: Path, adapter: Adapter) -> None:
+def run(workspace: Path, adapter: Adapter, search: Search | None = None) -> None:
     db = sqlite3.connect(workspace / DB_NAME)
     try:
         with db:
@@ -24,6 +26,15 @@ def run(workspace: Path, adapter: Adapter) -> None:
                 "create table if not exists extractions"
                 " (chapter integer primary key, result text not null)"
             )
+            db.execute(
+                "create table if not exists research (term text, summary text, url text not null)"
+            )
+            db.execute(
+                "create table if not exists glossary"
+                " (term text, rendering text, origin text, source text)"
+            )
+        if search is not None:
+            _research(db, workspace, search)
         _extraction(
             db, workspace, LLM(adapter, workspace / DB_NAME, budget=Budget(workspace / DB_NAME))
         )
@@ -57,3 +68,14 @@ def _extraction(db: sqlite3.Connection, workspace: Path, llm: LLM) -> None:
                 "insert into extractions values (?, ?)", (index, result.output.model_dump_json())
             )
     _set_status(db, "extraction", "done")
+
+
+def _research(db: sqlite3.Connection, workspace: Path, search: Search) -> None:
+    if _status(db, "research") is not None:
+        return
+    source = open_epub(workspace / SOURCE_NAME)
+    opf = next((source.read(n) for n in source.names if n.endswith(".opf")), b"")
+    title = book_title(opf)
+    target = db.execute("select value from settings where key = 'target'").fetchone()
+    found = title is not None and research(db, search, title, str(target[0]) if target else "es")
+    _set_status(db, "research", "done" if found else "nothing found")
