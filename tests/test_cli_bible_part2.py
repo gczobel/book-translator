@@ -10,7 +10,7 @@ import pytest
 from book_translator import main
 from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
-from book_translator.llm import InvalidOutputError, LLMRequest, RawAnswer, request_key
+from book_translator.llm import LLMRequest, RawAnswer, request_key
 from book_translator.replay import ReplayAdapter
 from book_translator.search import Finding
 from book_translator.stages.extract import extraction_request
@@ -286,6 +286,32 @@ def test_an_address_rule_for_someone_outside_the_cast_is_retried(ws: Path) -> No
     assert len(stored(ws)["address_grid"]) == 3
 
 
+def test_a_form_of_address_spelled_loosely_is_read_as_the_allowed_one(ws: Path) -> None:
+    loose = part2(
+        address_grid=[
+            {"speaker": "Hiram", "addressee": "Sir Simon", "form": "Usted"},
+            {"speaker": "Sir Simon", "addressee": "Hiram", "form": "tu"},
+        ]
+    )
+    adapter = Part2Adapter([json.dumps(loose)])
+
+    main(["run", str(ws)], adapter=adapter)
+
+    assert len(adapter.completion_requests) == 1
+    assert [r["form"] for r in stored(ws)["address_grid"]] == ["usted", "tú"]
+
+
+def test_a_character_named_loosely_is_matched_to_the_cast_member(ws: Path) -> None:
+    loose = part2(address_grid=[{"speaker": "  sir  SIMON.", "addressee": "hiram", "form": "tú"}])
+    adapter = Part2Adapter([json.dumps(loose)])
+
+    main(["run", str(ws)], adapter=adapter)
+
+    assert len(adapter.completion_requests) == 1
+    rule = stored(ws)["address_grid"][0]
+    assert (rule["speaker"], rule["addressee"]) == ("Sir Simon", "Hiram")
+
+
 def test_a_backwards_chapter_range_is_retried(ws: Path) -> None:
     rule = {"speaker": "Hiram", "addressee": "Sir Simon", "form": "tú"}
     backwards = part2(address_grid=[{**rule, "from_chapter": 3, "to_chapter": 1}])
@@ -299,7 +325,7 @@ def test_a_backwards_chapter_range_is_retried(ws: Path) -> None:
 def test_an_unknown_form_of_address_is_never_stored(ws: Path) -> None:
     bad = part2(address_grid=[{"speaker": "Hiram", "addressee": "Sir Simon", "form": "vos"}])
 
-    with pytest.raises(InvalidOutputError):
+    with pytest.raises(SystemExit):
         main(["run", str(ws)], adapter=Part2Adapter([json.dumps(bad)]))
 
     assert stored(ws)["address_grid"] == []

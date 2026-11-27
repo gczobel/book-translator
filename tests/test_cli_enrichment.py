@@ -143,6 +143,16 @@ def test_recommending_an_existing_translation_without_a_source_is_retried(ws: Pa
     assert bible(ws)["cruxes"][0]["source"] == "https://e.org/b"
 
 
+def test_a_quotation_kind_and_recommendation_spelled_loosely_are_accepted(ws: Path) -> None:
+    loose = {"kind": "Poem", "location": "chapter 3, the epitaph", "recommendation": "Own"}
+    adapter = EnrichAdapter({"quotations": [loose]})
+
+    main(["run", str(ws)], adapter=adapter)
+
+    assert len(adapter.enrichment_requests) == 1
+    assert bible(ws)["cruxes"][0]["recommendation"] == "our own"
+
+
 def test_flags_join_the_cruxes_the_bible_already_predicted(ws: Path) -> None:
     predicted = {"type": "lyrics", "location": "chapter 2, the nursery rhyme", "note": "rhymes"}
     adapter = EnrichAdapter({"quotations": QUOTATIONS})

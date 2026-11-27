@@ -2,11 +2,11 @@
 
 import json
 import sqlite3
-from typing import Self
+from typing import Any, Self
 
 from pydantic import model_validator
 
-from book_translator.bible import Bible, GlossaryEntry, Part2
+from book_translator.bible import Bible, GlossaryEntry, Part2, settle_names
 from book_translator.llm import LLMRequest
 
 PROMPT_VERSION = "completion-v1"
@@ -37,6 +37,11 @@ def completion_schema(part1: Bible) -> type[Part2]:
     names = {m.name for m in part1.cast}
 
     class CastChecked(Part2):
+        @model_validator(mode="before")
+        @classmethod
+        def _names_as_in_the_cast(cls, data: Any) -> Any:
+            return settle_names(data, [(m.name, m.aliases) for m in part1.cast])
+
         @model_validator(mode="after")
         def _belongs_to_the_cast(self) -> Self:
             self.check_against_cast(names)

@@ -89,6 +89,19 @@ def test_a_confident_local_tk_is_resolved_automatically_and_updates_the_text(
     assert target_text(ws, block) == "noche en calma Fin."
 
 
+def test_a_resolver_confidence_written_as_a_percentage_counts_as_that_fraction(
+    tmp_path: Path,
+) -> None:
+    adapter = ResolveAdapter(
+        [tk()], lambda card: {"resolution": "noche en calma", "confidence": 90}
+    )
+
+    ws = run_all(tmp_path, adapter)
+
+    (row,) = tks_of(ws)
+    assert (row["resolution"], row["resolver"]) == ("noche en calma", "auto")
+
+
 def second_block() -> str:
     return source_ids()[2]
 

@@ -10,6 +10,7 @@ import json
 import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -22,15 +23,17 @@ from book_translator.llm import LLM, LLMRequest
 from book_translator.progress import Tick, no_tick
 from book_translator.stages.context import SourceBlock, bible_slice, concordance
 from book_translator.tk import DraftedTK
+from book_translator.tolerance import in_order
 
-PROMPT_VERSION = "draft-v2"
+PROMPT_VERSION = "draft-v3"
 MAX_PASSAGE_WORDS = 400
 CONTEXT_BLOCKS = 3
 _PROMPT = (
     "Translate the passage block by block. Give every block of the passage one or more target "
     "blocks, keep inline codes, use the bible and the concordance, and where unsure give a "
     "provisional rendering plus a TK. Write speech inside « »; its layout is applied afterwards. "
-    "The context blocks are read-only."
+    "The context blocks are read-only. For each TK, give 2 or 3 candidates and set "
+    "`recommendation` to the number (1, 2 or 3) of the candidate you recommend."
 )
 
 
@@ -79,6 +82,21 @@ def draft_schema(passage: Passage, encoded: dict[str, EncodedBlock]) -> type[Dra
     """The draft's schema for this passage: every block answered, in order, with legal codes."""
 
     class PassageDraft(Draft):
+        @model_validator(mode="before")
+        @classmethod
+        def _settle_order_and_strays(cls, data: Any) -> Any:
+            if not isinstance(data, dict):
+                return data
+            data = {**data, "blocks": in_order(data.get("blocks"), passage.ids, "source")}
+            tks = data.get("tks")
+            if isinstance(tks, list):  # a TK for a block outside the passage cannot be placed
+                data["tks"] = [
+                    t
+                    for t in tks
+                    if not isinstance(t, dict) or str(t.get("block", "")).strip() in passage.ids
+                ]
+            return data
+
         @model_validator(mode="after")
         def _complete_and_legal(self) -> "PassageDraft":
             if [b.source for b in self.blocks] != passage.ids:

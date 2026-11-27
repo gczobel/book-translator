@@ -2,13 +2,14 @@
 
 import json
 import sqlite3
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, BeforeValidator, model_validator
 
 from book_translator.bible import Bible, Crux, GlossaryEntry
 from book_translator.llm import LLMRequest
 from book_translator.search import Search
+from book_translator.tolerance import choice
 
 PROMPT_VERSION = "enrich-v1"
 _PROMPT = (
@@ -19,16 +20,22 @@ _PROMPT = (
 
 class RealName(BaseModel):
     term: str
-    kind: Literal["place", "person", "work"]
+    kind: Annotated[
+        Literal["place", "person", "work"], BeforeValidator(choice("place", "person", "work"))
+    ]
 
 
 class Quotation(BaseModel):
     """A quoted song, poem or passage of scripture, and what to do about its translation."""
 
-    kind: Literal["song", "poem", "scripture"]
+    kind: Annotated[
+        Literal["song", "poem", "scripture"], BeforeValidator(choice("song", "poem", "scripture"))
+    ]
     location: str
     note: str = ""
-    recommendation: Literal["existing", "own"]
+    recommendation: Annotated[
+        Literal["existing", "own"], BeforeValidator(choice("existing", "own"))
+    ]
     source: str = ""  # where the existing translation is found
 
     @model_validator(mode="after")

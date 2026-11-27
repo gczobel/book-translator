@@ -10,7 +10,7 @@ import pytest
 from book_translator import main
 from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
-from book_translator.llm import InvalidOutputError, LLMRequest, RawAnswer, request_key
+from book_translator.llm import LLMRequest, RawAnswer, request_key
 from book_translator.replay import ReplayAdapter
 from book_translator.search import Finding
 from book_translator.stages.extract import extraction_request
@@ -136,7 +136,7 @@ def test_dialogue_defaults_to_raya_split(ws: Path) -> None:
 def test_an_unknown_dialogue_setting_is_never_stored(ws: Path) -> None:
     style = {**STYLE, "dialogue": "guillemets"}
 
-    with pytest.raises(InvalidOutputError):
+    with pytest.raises(SystemExit):
         main(["run", str(ws)], adapter=BibleAdapter([json.dumps(bible(style=style))]))
 
     with sqlite3.connect(ws / "book.sqlite") as db:

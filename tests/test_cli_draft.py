@@ -10,7 +10,7 @@ import pytest
 
 from book_translator import main
 from book_translator.epub import open_epub
-from book_translator.llm import InvalidOutputError, LLMRequest, RawAnswer
+from book_translator.llm import LLMRequest, RawAnswer
 from test_cli_bible_part2 import EPUB, Part2Adapter, echo_draft, part2
 
 Answer = Callable[[LLMRequest, int], str]
@@ -94,6 +94,34 @@ def test_a_block_may_become_several_target_blocks_in_order(ws: Path) -> None:
     assert [r[0] for r in rows] == ["It was a quiet evening.", "second", "third"]
 
 
+def test_blocks_answered_out_of_order_with_a_stray_extra_are_stored_in_order(ws: Path) -> None:
+    def shuffled(request: LLMRequest, attempt: int) -> str:
+        draft = json.loads(echo_draft(request))
+        draft["blocks"].reverse()
+        draft["blocks"].append({"source": " not-a-block ", "targets": ["x"]})
+        return json.dumps(draft)
+
+    adapter = DraftAdapter(shuffled)
+    drafted(ws, adapter)
+
+    assert adapter.draft_attempts == len(adapter.draft_requests)
+    assert {r[0] for r in query(ws, "select source from targets")} == set(source_ids())
+    assert "x" not in {r[0] for r in query(ws, "select text from targets")}
+
+
+def test_a_tk_for_a_block_outside_the_passage_is_dropped_not_fatal(ws: Path) -> None:
+    def stray(request: LLMRequest, attempt: int) -> str:
+        draft = json.loads(echo_draft(request))
+        draft["tks"] = [tk(block="somewhere-else")]
+        return json.dumps(draft)
+
+    adapter = DraftAdapter(stray)
+    drafted(ws, adapter)
+
+    assert adapter.draft_attempts == len(adapter.draft_requests)
+    assert query(ws, "select count(*) from tks") == [(0,)]
+
+
 def test_a_block_left_out_is_retried(ws: Path) -> None:
     def forgetful(request: LLMRequest, attempt: int) -> str:
         answer = json.loads(echo_draft(request))
@@ -157,20 +185,81 @@ def test_a_tk_is_stored_with_every_field_of_the_schema(ws: Path) -> None:
     assert (stored["resolution"], stored["resolver"]) == (None, None)
 
 
+def stored_tk(ws: Path) -> dict[str, Any]:
+    with sqlite3.connect(ws / "book.sqlite") as db:
+        db.row_factory = sqlite3.Row
+        rows = [dict(r) for r in db.execute("select * from tks")]
+    assert len(rows) == 1
+    return rows[0]
+
+
+def test_the_recommendation_is_asked_for_as_a_candidate_number(ws: Path) -> None:
+    adapter = DraftAdapter(with_tks([tk(recommendation=2)]))
+    drafted(ws, adapter)
+
+    asked = json.loads(adapter.draft_requests[0].output_schema)
+    kinds = [
+        p["properties"]["recommendation"]["type"]
+        for p in asked["$defs"].values()
+        if "recommendation" in p.get("properties", {})
+    ]
+    assert kinds == ["integer"]
+    assert stored_tk(ws)["recommendation"] == "noche en calma"
+    assert adapter.draft_attempts == len(adapter.draft_requests)
+
+
 def test_a_tk_needs_two_or_three_candidates_and_retries_are_bounded(ws: Path) -> None:
     one = tk(candidates=[{"rendering": "a", "reason": "b"}], recommendation="a")
     adapter = DraftAdapter(with_tks([one]))
 
-    with pytest.raises(InvalidOutputError):
+    with pytest.raises(SystemExit):
         drafted(ws, adapter)
 
     assert adapter.draft_attempts == 3
 
 
+def test_an_answer_that_stays_invalid_is_saved_and_the_run_stops_with_a_short_message(
+    ws: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret = "sk-ant-should-never-appear"
+
+    def hopeless(request: LLMRequest, attempt: int) -> str:
+        return json.dumps({"blocks": [], "note": secret * 5000})
+
+    adapter = DraftAdapter(hopeless)
+    with pytest.raises(SystemExit) as stopped:
+        drafted(ws, adapter)
+
+    message = str(stopped.value)
+    assert "draft" in message and "validation" in message
+    assert "Traceback" not in message
+    logs = list((ws / "logs").glob("invalid-*.json"))
+    assert len(logs) == 1
+    assert str(logs[0]) in message
+    assert f"book-translator run {ws}" in message
+    saved = json.loads(logs[0].read_text())
+    assert saved["stage"] == "draft"
+    assert logs[0].name == f"invalid-{saved['key']}.json"
+    assert "cover exactly the blocks" in saved["error"]
+    assert saved["raw"].startswith('{"blocks": []')
+    assert logs[0].stat().st_size < 100_000
+    assert secret not in logs[0].read_text()
+    assert len(message) < 3000
+
+
+def test_a_tk_type_and_scope_spelled_loosely_are_read_as_the_allowed_ones(ws: Path) -> None:
+    adapter = DraftAdapter(with_tks([tk(type="Cultural Reference", scope="Recurring")]))
+    drafted(ws, adapter)
+
+    stored = stored_tk(ws)
+    assert (stored["type"], stored["scope"]) == ("cultural reference", "recurring")
+    assert adapter.draft_attempts == len(adapter.draft_requests)
+
+
 def test_a_tk_of_an_unknown_type_is_retried(ws: Path) -> None:
     adapter = DraftAdapter(with_tks([tk(type="hunch")]))
 
-    with pytest.raises(InvalidOutputError):
+    with pytest.raises(SystemExit):
         drafted(ws, adapter)
 
 
@@ -204,7 +293,7 @@ def test_inline_codes_that_stay_broken_stop_the_run_after_bounded_attempts(ws: P
         return json.dumps(draft)
 
     adapter = DraftAdapter(hopeless)
-    with pytest.raises(InvalidOutputError):
+    with pytest.raises(SystemExit):
         drafted(ws, adapter)
 
     assert adapter.draft_attempts - len(adapter.draft_requests) == 2
@@ -228,6 +317,55 @@ def test_the_model_named_for_the_draft_in_the_config_is_used(ws: Path) -> None:
     assert isinstance(adapter, DraftAdapter)
 
     assert {r.model for r in adapter.draft_requests} == {"anthropic:claude-sonnet-5-5"}
+
+
+@pytest.mark.parametrize(
+    "said",
+    ["  Tarde   Tranquila ", '"tarde tranquila"', "«tarde tranquila»", "1", "candidate 1"],
+)
+def test_a_recommendation_that_only_approximately_names_a_candidate_is_matched(
+    ws: Path, said: str
+) -> None:
+    adapter = DraftAdapter(with_tks([tk(recommendation=said)]))
+    drafted(ws, adapter)
+
+    assert stored_tk(ws)["recommendation"] == "tarde tranquila"
+    assert adapter.draft_attempts == len(adapter.draft_requests)
+
+
+@pytest.mark.parametrize("said", ["something else entirely", 7, 0, -1, ""])
+def test_a_recommendation_matching_nothing_degrades_to_the_first_candidate(
+    ws: Path, said: object
+) -> None:
+    adapter = DraftAdapter(with_tks([tk(recommendation=said, confidence=0.9)]))
+    drafted(ws, adapter)
+
+    stored = stored_tk(ws)
+    assert stored["recommendation"] == "tarde tranquila"
+    assert stored["confidence"] <= 0.2
+    assert adapter.draft_attempts == len(adapter.draft_requests)
+
+
+def test_a_confidence_given_as_a_percentage_is_normalised(ws: Path) -> None:
+    drafted(ws, DraftAdapter(with_tks([tk(confidence=85)])))
+
+    assert stored_tk(ws)["confidence"] == pytest.approx(0.85)
+
+
+def test_a_fourth_candidate_is_dropped_rather_than_failing_the_passage(ws: Path) -> None:
+    extra = [
+        {"rendering": "tarde tranquila", "reason": "a"},
+        {"rendering": "noche en calma", "reason": "b"},
+        {"rendering": "velada serena", "reason": "c"},
+        {"rendering": "anochecer sereno", "reason": "d"},
+    ]
+    adapter = DraftAdapter(with_tks([tk(candidates=extra, recommendation=2)]))
+    drafted(ws, adapter)
+
+    stored = stored_tk(ws)
+    assert len(json.loads(stored["candidates"])) == 3
+    assert stored["recommendation"] == "noche en calma"
+    assert adapter.draft_attempts == len(adapter.draft_requests)
 
 
 def test_resume_does_not_repeat_finished_passages(ws: Path) -> None:
@@ -340,7 +478,7 @@ def test_status_reports_the_draft_stage(ws: Path, capsys: pytest.CaptureFixture[
 def test_a_tk_with_an_empty_provisional_rendering_is_retried(ws: Path) -> None:
     adapter = DraftAdapter(with_tks([tk(provisional="")]))
 
-    with pytest.raises(InvalidOutputError):
+    with pytest.raises(SystemExit):
         drafted(ws, adapter)
 
     assert adapter.draft_attempts == 3
