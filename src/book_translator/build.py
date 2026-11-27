@@ -98,7 +98,7 @@ def _edit_titles(epub: Epub, titles: Mapping[str, str]) -> None:
                 continue
             if element.get("title") in titles:
                 element.set("title", titles[str(element.get("title"))])
-            label = " ".join("".join(element.itertext()).split())
+            label = " ".join(_text(element).split())
             if (
                 etree.QName(element).localname in _LABELLED
                 and len(element) == 0
@@ -106,3 +106,7 @@ def _edit_titles(epub: Epub, titles: Mapping[str, str]) -> None:
             ):
                 element.text = titles[label]
         epub.store(member, tree)
+
+
+def _text(element: etree._Element) -> str:
+    return etree.tostring(element, method="text", encoding="unicode", with_tail=False)

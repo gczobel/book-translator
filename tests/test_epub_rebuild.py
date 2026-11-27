@@ -163,11 +163,14 @@ def test_the_codec_offers_no_way_to_merge_blocks_or_move_text_between_them() -> 
     assert public == {
         "book",
         "encode_block",
+        "locate_block",
         "names",
+        "opf_path",
         "read",
         "rebuild_block",
         "replace_block",
         "spine",
+        "store",
         "target_blocks",
         "write",
     }

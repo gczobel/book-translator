@@ -1,5 +1,6 @@
 """Seam 2: the build step's synchronized edits, tested only through the codec's interface."""
 
+import zipfile
 from pathlib import Path
 
 from lxml import etree
@@ -11,6 +12,10 @@ FIXTURES = Path(__file__).parent / "fixtures" / "epub"
 DC = "{http://purl.org/dc/elements/1.1/}"
 OPF = "{http://www.idpf.org/2007/opf}"
 XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
+
+
+def text(element: etree._Element) -> str:
+    return etree.tostring(element, method="text", encoding="unicode", with_tail=False)
 
 
 def opf(epub: Epub) -> etree._Element:
@@ -46,7 +51,7 @@ def test_opf_metadata_and_xml_lang_are_updated() -> None:
 
 def heading_texts(epub: Epub, member: str) -> list[str]:
     root = etree.fromstring(epub.read(member))
-    return ["".join(h.itertext()) for h in root.iterfind(".//{http://www.w3.org/1999/xhtml}h1")]
+    return [text(h) for h in root.iterfind(".//{http://www.w3.org/1999/xhtml}h1")]
 
 
 def test_chapter_titles_agree_across_ncx_headings_and_head_title() -> None:
@@ -72,7 +77,7 @@ def test_chapter_titles_reach_the_toc_page_links_and_title_attributes() -> None:
 
     root = etree.fromstring(epub.read("OEBPS/contents.xhtml"))
     links = root.findall(".//{http://www.w3.org/1999/xhtml}a")
-    assert [("".join(a.itertext()), a.get("title")) for a in links] == [
+    assert [(text(a), a.get("title")) for a in links] == [
         ("Uno", "Uno"),
         ("Dos", "Dos"),
     ]
@@ -85,7 +90,7 @@ def test_chapter_titles_reach_the_epub3_nav() -> None:
     apply_synchronized_edits(epub, SyncEdits(chapter_titles={"Chapter One": "Capitulo Uno"}))
 
     nav = etree.fromstring(epub.read("OEBPS/nav.xhtml"))
-    links = ["".join(a.itertext()) for a in nav.iterfind(".//{http://www.w3.org/1999/xhtml}a")]
+    links = [text(a) for a in nav.iterfind(".//{http://www.w3.org/1999/xhtml}a")]
     assert links == ["Capitulo Uno", "Chapter Two"]
 
 
@@ -97,11 +102,11 @@ def note_pairs(epub: Epub) -> list[tuple[str, str]]:
         _, body = epub.locate_block(note.block)
         target = body.get("id")
         label = [
-            "".join(a.itertext())
+            text(a)
             for a in reference.iter("{http://www.w3.org/1999/xhtml}a")
             if a.get("href", "").endswith(f"#{target}")
         ]
-        out.append((label[0], "".join(body.xpath("text()"))))
+        out.append((label[0], (body.text or "")))
     return out
 
 
@@ -124,6 +129,65 @@ def test_notes_are_renumbered_when_a_note_is_added() -> None:
     assert ids[0] == "nt1" and ids[2] == "nt2" and len(set(ids)) == 3
 
 
+def identity_rebuild(epub: Epub) -> None:
+    for chapter in epub.book().chapters:
+        for scene in chapter.scenes:
+            for block in scene.blocks:
+                encoded = epub.encode_block(block.id)
+                epub.rebuild_block(block.id, encoded, [encoded.text])
+
+
+def members(path: Path) -> dict[str, bytes]:
+    with zipfile.ZipFile(path) as z:
+        return {i.filename: z.read(i) for i in z.infolist()}
+
+
+def test_an_identity_translation_with_no_synchronized_edits_reproduces_the_source(
+    tmp_path: Path,
+) -> None:
+    source = FIXTURES / "notes.epub"
+    epub = open_epub(source)
+    identity_rebuild(epub)
+
+    apply_synchronized_edits(epub, SyncEdits())
+
+    epub.write(tmp_path / "out.epub")
+    assert members(tmp_path / "out.epub") == members(source)
+
+
+def structure(data: bytes) -> list[tuple[str, str | None, str | None, str | None]]:
+    return [
+        (str(etree.QName(e).localname), e.get("id"), e.get("class"), e.get("href"))
+        for e in etree.fromstring(data).iter()
+        if isinstance(e.tag, str)
+    ]
+
+
+def test_synchronized_edits_keep_files_ids_classes_and_links(tmp_path: Path) -> None:
+    source = FIXTURES / "plain.epub"
+    epub = open_epub(source)
+    identity_rebuild(epub)
+
+    apply_synchronized_edits(
+        epub,
+        SyncEdits(
+            title="Uno",
+            language="es",
+            translator="Machine Assist",
+            chapter_titles={"One": "Uno", "Two": "Dos"},
+        ),
+    )
+
+    epub.write(tmp_path / "out.epub")
+    before, after = members(source), members(tmp_path / "out.epub")
+    assert list(after) == list(before)
+    for name in before:
+        if name.endswith(".xhtml"):
+            assert structure(after[name]) == structure(before[name])
+    assert after["OEBPS/style.css"] == before["OEBPS/style.css"]
+    assert after["OEBPS/images/dot.png"] == before["OEBPS/images/dot.png"]
+
+
 def test_an_added_note_links_both_ways_with_fresh_ids() -> None:
     epub = open_epub(FIXTURES / "notes.epub")
 
@@ -131,9 +195,11 @@ def test_an_added_note_links_both_ways_with_fresh_ids() -> None:
         epub, SyncEdits(added_notes=[AddedNote("OEBPS/ch1.xhtml#1", "Translator: a pun.")])
     )
 
-    ns = {"h": "http://www.w3.org/1999/xhtml"}
+    a = "{http://www.w3.org/1999/xhtml}a"
     chapter = etree.fromstring(epub.read("OEBPS/ch1.xhtml"))
     notes = etree.fromstring(epub.read("OEBPS/notes.xhtml"))
-    assert chapter.xpath("//h:a/@href", namespaces=ns) == ["notes.xhtml#nt1", "notes.xhtml#nt3"]
-    assert chapter.xpath("//h:a/@id", namespaces=ns) == ["rf1", "rf3"]
-    assert notes.xpath("//h:p[@id='nt3']/h:a/@href", namespaces=ns) == ["ch1.xhtml#rf3"]
+    assert [x.get("href") for x in chapter.iter(a)] == ["notes.xhtml#nt1", "notes.xhtml#nt3"]
+    assert [x.get("id") for x in chapter.iter(a)] == ["rf1", "rf3"]
+    p = "{http://www.w3.org/1999/xhtml}p"
+    back = [x.get("href") for q in notes.iter(p) if q.get("id") == "nt3" for x in q.iter(a)]
+    assert back == ["ch1.xhtml#rf3"]

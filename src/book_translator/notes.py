@@ -42,8 +42,8 @@ def add_notes(epub: Epub, added: Sequence[AddedNote]) -> None:
 def _container(block: etree._Element) -> etree._Element:
     """The block itself if it has an id, else its nearest ancestor with one."""
     node = block
-    while node.get("id") is None and node.getparent() is not None:
-        node = node.getparent()
+    while node.get("id") is None and (parent := node.getparent()) is not None:
+        node = parent
     return node
 
 
@@ -133,8 +133,8 @@ def _place(epub: Epub, note_id: str) -> None:
     if neighbour >= len(containers) or containers[neighbour][0] != member:
         return
     # Each lookup parses the document afresh; find the neighbour again in the moved note's tree.
-    found = moved.getroottree().getroot().xpath(f"//*[@id='{containers[neighbour][1].get('id')}']")
-    other = found[0]
+    wanted = containers[neighbour][1].get("id")
+    other = next(e for e in moved.getroottree().getroot().iter() if e.get("id") == wanted)
     if other.getparent() is not moved.getparent():
         return
     if index > 0:
