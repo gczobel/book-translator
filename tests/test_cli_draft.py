@@ -157,6 +157,29 @@ def test_a_tk_is_stored_with_every_field_of_the_schema(ws: Path) -> None:
     assert (stored["resolution"], stored["resolver"]) == (None, None)
 
 
+def stored_tk(ws: Path) -> dict[str, Any]:
+    with sqlite3.connect(ws / "book.sqlite") as db:
+        db.row_factory = sqlite3.Row
+        rows = [dict(r) for r in db.execute("select * from tks")]
+    assert len(rows) == 1
+    return rows[0]
+
+
+def test_the_recommendation_is_asked_for_as_a_candidate_number(ws: Path) -> None:
+    adapter = DraftAdapter(with_tks([tk(recommendation=2)]))
+    drafted(ws, adapter)
+
+    asked = json.loads(adapter.draft_requests[0].output_schema)
+    kinds = [
+        p["properties"]["recommendation"]["type"]
+        for p in asked["$defs"].values()
+        if "recommendation" in p.get("properties", {})
+    ]
+    assert kinds == ["integer"]
+    assert stored_tk(ws)["recommendation"] == "noche en calma"
+    assert adapter.draft_attempts == len(adapter.draft_requests)
+
+
 def test_a_tk_needs_two_or_three_candidates_and_retries_are_bounded(ws: Path) -> None:
     one = tk(candidates=[{"rendering": "a", "reason": "b"}], recommendation="a")
     adapter = DraftAdapter(with_tks([one]))
@@ -228,6 +251,55 @@ def test_the_model_named_for_the_draft_in_the_config_is_used(ws: Path) -> None:
     assert isinstance(adapter, DraftAdapter)
 
     assert {r.model for r in adapter.draft_requests} == {"anthropic:claude-sonnet-5-5"}
+
+
+@pytest.mark.parametrize(
+    "said",
+    ["  Tarde   Tranquila ", '"tarde tranquila"', "«tarde tranquila»", "1", "candidate 1"],
+)
+def test_a_recommendation_that_only_approximately_names_a_candidate_is_matched(
+    ws: Path, said: str
+) -> None:
+    adapter = DraftAdapter(with_tks([tk(recommendation=said)]))
+    drafted(ws, adapter)
+
+    assert stored_tk(ws)["recommendation"] == "tarde tranquila"
+    assert adapter.draft_attempts == len(adapter.draft_requests)
+
+
+@pytest.mark.parametrize("said", ["something else entirely", 7, 0, -1, ""])
+def test_a_recommendation_matching_nothing_degrades_to_the_first_candidate(
+    ws: Path, said: object
+) -> None:
+    adapter = DraftAdapter(with_tks([tk(recommendation=said, confidence=0.9)]))
+    drafted(ws, adapter)
+
+    stored = stored_tk(ws)
+    assert stored["recommendation"] == "tarde tranquila"
+    assert stored["confidence"] <= 0.2
+    assert adapter.draft_attempts == len(adapter.draft_requests)
+
+
+def test_a_confidence_given_as_a_percentage_is_normalised(ws: Path) -> None:
+    drafted(ws, DraftAdapter(with_tks([tk(confidence=85)])))
+
+    assert stored_tk(ws)["confidence"] == pytest.approx(0.85)
+
+
+def test_a_fourth_candidate_is_dropped_rather_than_failing_the_passage(ws: Path) -> None:
+    extra = [
+        {"rendering": "tarde tranquila", "reason": "a"},
+        {"rendering": "noche en calma", "reason": "b"},
+        {"rendering": "velada serena", "reason": "c"},
+        {"rendering": "anochecer sereno", "reason": "d"},
+    ]
+    adapter = DraftAdapter(with_tks([tk(candidates=extra, recommendation=2)]))
+    drafted(ws, adapter)
+
+    stored = stored_tk(ws)
+    assert len(json.loads(stored["candidates"])) == 3
+    assert stored["recommendation"] == "noche en calma"
+    assert adapter.draft_attempts == len(adapter.draft_requests)
 
 
 def test_resume_does_not_repeat_finished_passages(ws: Path) -> None:

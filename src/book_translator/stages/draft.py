@@ -23,14 +23,15 @@ from book_translator.progress import Tick, no_tick
 from book_translator.stages.context import SourceBlock, bible_slice, concordance
 from book_translator.tk import DraftedTK
 
-PROMPT_VERSION = "draft-v2"
+PROMPT_VERSION = "draft-v3"
 MAX_PASSAGE_WORDS = 400
 CONTEXT_BLOCKS = 3
 _PROMPT = (
     "Translate the passage block by block. Give every block of the passage one or more target "
     "blocks, keep inline codes, use the bible and the concordance, and where unsure give a "
     "provisional rendering plus a TK. Write speech inside « »; its layout is applied afterwards. "
-    "The context blocks are read-only."
+    "The context blocks are read-only. For each TK, give 2 or 3 candidates and set "
+    "`recommendation` to the number (1, 2 or 3) of the candidate you recommend."
 )
 
 
