@@ -8,25 +8,28 @@ more target blocks, stored against its id (ADR 0001); the codec rebuild happens 
 
 import json
 import sqlite3
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from pydantic import BaseModel, Field, model_validator
 
 from book_translator import tk
 from book_translator.bible import Bible
+from book_translator.dialogue import lay_out_legally
 from book_translator.epub import Epub
 from book_translator.inline import EncodedBlock, InlineCodeError
 from book_translator.llm import LLM, LLMRequest
 from book_translator.stages.context import SourceBlock, bible_slice, concordance
 from book_translator.tk import DraftedTK
 
-PROMPT_VERSION = "draft-v1"
+PROMPT_VERSION = "draft-v2"
 MAX_PASSAGE_WORDS = 400
 CONTEXT_BLOCKS = 3
 _PROMPT = (
     "Translate the passage block by block. Give every block of the passage one or more target "
     "blocks, keep inline codes, use the bible and the concordance, and where unsure give a "
-    "provisional rendering plus a TK. The context blocks are read-only."
+    "provisional rendering plus a TK. Write speech inside « »; its layout is applied afterwards. "
+    "The context blocks are read-only."
 )
 
 
@@ -94,6 +97,17 @@ def draft_schema(passage: Passage, encoded: dict[str, EncodedBlock]) -> type[Dra
     return PassageDraft
 
 
+def _legal(block: EncodedBlock) -> Callable[[Sequence[str]], bool]:
+    def is_legal(pieces: Sequence[str]) -> bool:
+        try:
+            block.validate_pieces(pieces)
+        except InlineCodeError:
+            return False
+        return True
+
+    return is_legal
+
+
 def create_tables(db: sqlite3.Connection) -> None:
     db.execute(
         "create table if not exists targets (source text not null, position integer not null,"
@@ -152,9 +166,10 @@ def draft(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model: s
         result = llm.call(request, draft_schema(passage, encoded)).output
         with db:
             for block in result.blocks:
+                laid = lay_out_legally(block.targets, bible.style, _legal(encoded[block.source]))
                 db.executemany(
                     "insert into targets values (?, ?, ?)",
-                    [(block.source, n, t) for n, t in enumerate(block.targets)],
+                    [(block.source, n, t) for n, t in enumerate(laid)],
                 )
             tk.store(db, result.tks)
             db.execute("insert into drafted_passages values (?)", (passage.ids[0],))
