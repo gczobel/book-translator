@@ -36,9 +36,13 @@ class WikiSearch:
         self._timeout = timeout
 
     def lookup(self, query: str, language: str, *, established: bool) -> list[Finding]:
-        found = self._wikipedia(query)
-        if established:
-            found += self._wikidata(query, language)
+        """A network hiccup or an unexpected answer is "nothing found", never an aborted run."""
+        try:
+            found = self._wikipedia(query)
+            if established:
+                found += self._wikidata(query, language)
+        except (OSError, ValueError, KeyError, TypeError):
+            return []
         return found
 
     def _get(self, base: str, **params: str) -> Any:
