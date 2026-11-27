@@ -113,7 +113,10 @@ def test_a_qualifying_pr_that_passes_the_age_gate_is_selected(tmp_path: Path) ->
     gate = Gate()
     assert select(env(tmp_path), FakeApi(), gate) == 0
     out = outputs(tmp_path)
-    assert json.loads(out["armable"]) == [{"number": 7, "head_sha": SHA}]
+    assert json.loads(out["armable"]) == [
+        {"number": 7, "head_sha": SHA, "security": False, "urgent": False}
+    ]
+    assert json.loads(out["disarm"]) == [] and out["work"] == "true"
     assert out["ok"] == "true"
     call = gate.calls[0]
     assert call["IS_SECURITY"] == "false" and call["URGENT"] == "false"
@@ -177,7 +180,8 @@ def test_a_crashing_gate_is_not_a_pass(tmp_path: Path) -> None:
 
 
 def targets(*items: dict[str, Any]) -> dict[str, str]:
-    return {"ARMING_TARGETS": json.dumps(list(items))}
+    full = [{"security": False, "urgent": False, **item} for item in items]
+    return {"ARMING_TARGETS": json.dumps(full)}
 
 
 def test_arm_enables_squash_auto_merge_with_a_blank_body_pinned_to_the_head(
@@ -292,3 +296,100 @@ def test_arm_rejects_malformed_targets(tmp_path: Path) -> None:
 
 def test_arm_with_nothing_to_do_succeeds(tmp_path: Path) -> None:
     assert arm(env(tmp_path, ARMING_TARGETS="[]"), FakeApi()) == 0
+
+
+# --- an armed PR must not escape the age gate ---------------------------------------------------
+
+
+def armed(**over: Any) -> dict[str, Any]:
+    return raw_pull(auto_merge={"enabled_by": {}}, **over)
+
+
+def test_an_armed_pr_that_still_qualifies_is_left_armed(tmp_path: Path) -> None:
+    gate = Gate()
+    assert select(env(tmp_path), FakeApi([armed()]), gate) == 0
+    out = outputs(tmp_path)
+    assert gate.calls  # it was judged again against its current head
+    assert json.loads(out["armable"]) == [] and json.loads(out["disarm"]) == []
+    assert out["work"] == "false"
+
+
+def test_an_armed_pr_whose_head_now_fails_the_age_gate_is_disarmed(tmp_path: Path) -> None:
+    assert select(env(tmp_path), FakeApi([armed()]), Gate(1)) == 0
+    out = outputs(tmp_path)
+    assert json.loads(out["disarm"]) == [7] and out["work"] == "true"
+    assert json.loads(out["armable"]) == []
+
+
+def test_an_armed_pr_that_no_longer_qualifies_is_disarmed(tmp_path: Path) -> None:
+    gate = Gate()
+    select(env(tmp_path), FakeApi([armed(labels=[{"name": "Hold"}])]), gate)
+    assert json.loads(outputs(tmp_path)["disarm"]) == [7]
+    assert gate.calls == []  # no need to run the gate
+
+
+def test_an_armed_pr_that_cannot_be_checked_is_disarmed_and_not_ok(tmp_path: Path) -> None:
+    api = FakeApi([armed()])
+    api.lock = None
+    select(env(tmp_path), api, Gate())
+    out = outputs(tmp_path)
+    assert json.loads(out["disarm"]) == [7] and out["ok"] == "false"
+
+
+def test_someone_elses_armed_pr_is_never_disarmed(tmp_path: Path) -> None:
+    select(env(tmp_path), FakeApi([armed(user={"id": OWNER_ID})]), Gate(1))
+    assert json.loads(outputs(tmp_path)["disarm"]) == []
+
+
+def test_arm_disables_auto_merge_on_the_listed_armed_prs(tmp_path: Path) -> None:
+    api = FakeApi([armed()])
+    code = arm(env(tmp_path, ARMING_TARGETS="[]", ARMING_DISARM="[7]"), api)
+    assert code == 0
+    assert "disablePullRequestAutoMerge" in api.posts[0][1]["query"]
+    assert api.posts[0][1]["variables"] == {"id": "PR_7"}
+
+
+def test_arm_does_not_disable_what_is_not_armed_or_not_ours(tmp_path: Path) -> None:
+    for pull in (raw_pull(), armed(user={"id": OWNER_ID})):
+        api = FakeApi([pull])
+        assert arm(env(tmp_path, ARMING_TARGETS="[]", ARMING_DISARM="[7]"), api) == 0
+        assert api.posts == []
+
+
+def test_a_failed_disable_fails_the_job(tmp_path: Path) -> None:
+    api = FakeApi([armed()])
+    api.graphql_replies = [{"errors": [{"message": "nope"}]}]
+    assert arm(env(tmp_path, ARMING_TARGETS="[]", ARMING_DISARM="[7]"), api) == 1
+    assert arm(env(tmp_path, ARMING_TARGETS="[]", ARMING_DISARM="oops"), api) == 1
+
+
+# --- arm refuses a stricter label state than select used ---------------------------------------
+
+
+def test_arm_refuses_when_a_label_the_age_gate_relied_on_is_gone(tmp_path: Path) -> None:
+    for relied in ({"security": True}, {"urgent": True}):
+        api = FakeApi()  # the live PR has neither label honoured
+        item = targets({"number": 7, "head_sha": SHA, **relied})
+        assert arm(env(tmp_path, **item), api) == 1
+        assert api.posts == []
+
+
+def test_arm_accepts_labels_equal_to_or_looser_than_what_select_used(tmp_path: Path) -> None:
+    pulls = [raw_pull(labels=[{"name": "security"}, {"name": "urgent"}])]
+    api = FakeApi(pulls)
+    api.events[7] = [
+        {"event": "labeled", "label": {"name": "security"}, "actor": {"id": DEPENDABOT_ID}},
+        {"event": "labeled", "label": {"name": "urgent"}, "actor": {"id": OWNER_ID}},
+    ]
+    both = targets({"number": 7, "head_sha": SHA, "security": True, "urgent": True})
+    assert arm(env(tmp_path, **both), api) == 0
+    api2 = FakeApi(pulls)
+    api2.events[7] = api.events[7]
+    assert arm(env(tmp_path, **targets({"number": 7, "head_sha": SHA})), api2) == 0
+
+
+def test_arm_rejects_targets_without_the_label_state(tmp_path: Path) -> None:
+    bad = json.dumps([{"number": 7, "head_sha": SHA}])
+    api = FakeApi()
+    assert arm(env(tmp_path, ARMING_TARGETS=bad), api) == 1
+    assert api.posts == []

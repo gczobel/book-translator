@@ -56,7 +56,6 @@ def test_a_release_please_pr_by_the_maintenance_app_qualifies() -> None:
         {"base_repo": "other/r"},
         {"base_ref": "develop"},
         {"state": "closed"},
-        {"armed": True},
         {"labels": frozenset({"hold"})},
         {"labels": frozenset({"hold", "dependencies"})},
     ],
@@ -112,3 +111,8 @@ def test_security_label_counts_only_when_dependabot_applied_it() -> None:
     assert not decide(p, []).security
     # the owner is not Dependabot: the stricter 7-day rule applies
     assert not decide(p, [labeled("security", OWNER_ID)]).security
+
+
+def test_whether_a_pr_is_already_armed_does_not_change_whether_it_qualifies() -> None:
+    assert decide(pull(armed=True)).arm
+    assert not decide(pull(armed=True, labels=frozenset({"hold"}))).arm

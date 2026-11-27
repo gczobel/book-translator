@@ -115,7 +115,10 @@ def _applied_by(events: Iterable[LabelEvent], label: str, allowed: set[int]) -> 
 def evaluate(
     pull: Pull, repo: str, default_branch: str, events: Iterable[LabelEvent]
 ) -> ArmDecision:
-    """Whether `pull` may be armed, and the policy inputs for the age gate.
+    """Whether `pull` qualifies for auto-merge, and the policy inputs for the age gate.
+
+    Whether it is already armed is not judged here: the sweep re-judges armed PRs too, so one
+    whose head changed after arming can't escape the gate (see `arming.run.select`).
 
     `security` is honoured only if Dependabot itself applied the label and `urgent` only if the
     owner did; otherwise they are false, which is the stricter reading (7 days, no skip).
@@ -131,8 +134,6 @@ def evaluate(
         return ArmDecision(False, "base branch is not the default branch")
     if pull.state != "open":
         return ArmDecision(False, "not open")
-    if pull.armed:
-        return ArmDecision(False, "already armed")
     if is_on_hold(pull.labels):
         return ArmDecision(False, "on hold")
     events = list(events)

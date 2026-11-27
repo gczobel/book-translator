@@ -19,7 +19,7 @@ from typing import Any
 
 from arming import collect
 from arming.collect import Api
-from arming.core import Pull, evaluate, unverified_checks
+from arming.core import ARMABLE_AUTHORS, Pull, evaluate, unverified_checks
 from ghapi.client import ApiError, HttpApi
 from ghapi.repo import split_repo
 
@@ -31,6 +31,13 @@ _ENABLE = """
 mutation($id: ID!, $oid: GitObjectID!) {
   enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: SQUASH, commitBody: "",
                                      expectedHeadOid: $oid}) {
+    pullRequest { number }
+  }
+}
+"""
+_DISABLE = """
+mutation($id: ID!) {
+  disablePullRequestAutoMerge(input: {pullRequestId: $id}) {
     pullRequest { number }
   }
 }
@@ -77,9 +84,23 @@ def _publish(env: Mapping[str, str], lines: dict[str, str]) -> bool:
     return True
 
 
+def _ours(pull: Pull) -> bool:
+    """An armed PR by an author this workflow arms for, so it may be disarmed."""
+    return pull.armed and pull.author_id in ARMABLE_AUTHORS
+
+
 def select(env: Mapping[str, str], api: Api | None = None, age_gate: AgeGate = _age_gate) -> int:
-    """Publish `armable` (JSON list of number and head sha) and `ok` ('true' only if clean)."""
+    """Publish `armable`, `disarm`, `work` and `ok` ('true' only if clean).
+
+    `armable` lists number, head sha and the security/urgent inputs the age gate saw. PRs that
+    are already armed are judged again against their current head: one that no longer qualifies,
+    or fails the gate (or can't be checked), is listed in `disarm`, so a push after arming can't
+    skip the age gate. Only PRs by Dependabot or the maintenance App are ever disarmed; anyone
+    else's auto-merge is not this workflow's business. `work` is 'true' if either list has an
+    entry (one flag, so the workflow needs no `||`).
+    """
     armable: list[dict[str, Any]] = []
+    disarm: list[int] = []
     ok = True
     pulls: list[Pull] = []
     try:
@@ -95,7 +116,11 @@ def select(env: Mapping[str, str], api: Api | None = None, age_gate: AgeGate = _
             events = collect.label_events(client, repo, pull.number)
             decision = evaluate(pull, repo, branch, events)
             if not decision.arm:
-                print(f"arming: #{pull.number} skipped: {decision.reason}")
+                if _ours(pull):
+                    disarm.append(pull.number)
+                    print(f"arming: #{pull.number} auto-merge to be disabled: {decision.reason}")
+                else:
+                    print(f"arming: #{pull.number} skipped: {decision.reason}")
                 continue
             head_lock = client.get_text(f"/repos/{repo}/contents/uv.lock?ref={pull.head_sha}")
             if head_lock is None:
@@ -113,17 +138,39 @@ def select(env: Mapping[str, str], api: Api | None = None, age_gate: AgeGate = _
         except Exception as error:
             print(f"arming: #{pull.number} not armed ({type(error).__name__}: {error})")
             ok = False
+            if _ours(pull):  # can't verify an armed PR: fail closed
+                disarm.append(pull.number)
             continue
-        if verdict == 0:
-            print(f"arming: #{pull.number} passed the age gate")
-            armable.append({"number": pull.number, "head_sha": pull.head_sha})
-        else:
+        if verdict != 0:
             print(f"arming: #{pull.number} waits: the age gate did not pass")
-    wrote = _publish(env, {"armable": json.dumps(armable), "ok": str(ok).lower()})
+            if _ours(pull):
+                disarm.append(pull.number)
+        elif pull.armed:
+            print(f"arming: #{pull.number} is armed and still passes the age gate")
+        else:
+            print(f"arming: #{pull.number} passed the age gate")
+            armable.append(
+                {
+                    "number": pull.number,
+                    "head_sha": pull.head_sha,
+                    "security": decision.security,
+                    "urgent": decision.urgent,
+                }
+            )
+    wrote = _publish(
+        env,
+        {
+            "armable": json.dumps(armable),
+            "disarm": json.dumps(disarm),
+            "work": str(bool(armable or disarm)).lower(),
+            "ok": str(ok).lower(),
+        },
+    )
     return 0 if wrote else 1
 
 
-def _targets(text: str) -> list[tuple[int, str]]:
+def _targets(text: str) -> list[tuple[int, str, bool, bool]]:
+    """(number, head sha, security, urgent) as the age gate saw them."""
     try:
         data = json.loads(text)
     except json.JSONDecodeError as error:
@@ -132,17 +179,34 @@ def _targets(text: str) -> list[tuple[int, str]]:
         raise ApiError("ARMING_TARGETS is not a list")
     result = []
     for item in data:
-        number = item.get("number") if isinstance(item, dict) else None
-        sha = item.get("head_sha") if isinstance(item, dict) else None
+        item = item if isinstance(item, dict) else {}
+        number, sha = item.get("number"), item.get("head_sha")
+        security, urgent = item.get("security"), item.get("urgent")
         if (
             isinstance(number, bool)
             or not isinstance(number, int)
             or not isinstance(sha, str)
             or not _SHA.fullmatch(sha)
+            or not isinstance(security, bool)
+            or not isinstance(urgent, bool)
         ):
             raise ApiError("ARMING_TARGETS has a malformed entry")
-        result.append((number, sha))
+        result.append((number, sha, security, urgent))
     return result
+
+
+def _disarm_numbers(text: str) -> list[int]:
+    if not text:
+        return []
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ApiError("ARMING_DISARM is not JSON") from error
+    if not isinstance(data, list) or not all(
+        isinstance(n, int) and not isinstance(n, bool) for n in data
+    ):
+        raise ApiError("ARMING_DISARM is not a list of numbers")
+    return data
 
 
 def _graphql(api: Api, query: str, variables: dict[str, str]) -> list[str]:
@@ -155,17 +219,29 @@ def _graphql(api: Api, query: str, variables: dict[str, str]) -> list[str]:
 
 
 def arm(env: Mapping[str, str], api: Api | None = None) -> int:
-    """0 only if every selected PR was armed or merged."""
+    """0 only if every selected PR was armed or merged and every disarm happened."""
     try:
         repo = _repo(env)
-        targets = _targets(env.get("ARMING_TARGETS", ""))
+        targets = _targets(env.get("ARMING_TARGETS", "") or "[]")
+        disarm = _disarm_numbers(env.get("ARMING_DISARM", ""))
         api = api or HttpApi(env.get("GH_TOKEN", ""))
         branch = collect.default_branch(api, repo)
     except Exception as error:
         print(f"arming: cannot start ({type(error).__name__}: {error})")
         return 1
     failed = False
-    for number, sha in targets:
+    for number in disarm:
+        try:
+            pull = collect.one_pull(api, repo, number)
+            if pull.state == "open" and pull.armed and pull.author_id in ARMABLE_AUTHORS:
+                errors = _graphql(api, _DISABLE, {"id": pull.node_id})
+                if errors:
+                    raise ApiError("GitHub refused: " + "; ".join(errors))
+                print(f"arming: #{number} auto-merge disabled")
+        except Exception as error:
+            print(f"arming: #{number} auto-merge NOT disabled ({type(error).__name__}: {error})")
+            failed = True
+    for number, sha, security, urgent in targets:
         try:
             pull = collect.one_pull(api, repo, number)
             decision = evaluate(pull, repo, branch, collect.label_events(api, repo, number))
@@ -173,6 +249,10 @@ def arm(env: Mapping[str, str], api: Api | None = None) -> int:
                 raise ApiError(f"no longer qualifies: {decision.reason}")
             if pull.head_sha != sha:
                 raise ApiError("the head moved since the age gate ran")
+            # The age gate ran with these inputs. A label that has since been removed (or never
+            # was the right one) makes the real policy stricter: refuse rather than arm.
+            if (security and not decision.security) or (urgent and not decision.urgent):
+                raise ApiError("a security or urgent label the age gate relied on is gone")
             variables = {"id": pull.node_id, "oid": sha}
             errors = _graphql(api, _ENABLE, variables)
             if errors and all(CLEAN_STATUS in e for e in errors):
