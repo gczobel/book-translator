@@ -51,8 +51,11 @@ code from something that may have been tricked.
       override, to be deleted once they age.
     - GitHub Actions supports only `default-days` in the cooldown, so an Actions major waits 7 days,
       not 30. Dependabot dates an Actions release by the GitHub Release `published_at` of that tag,
-      else the tag's creation date, else the commit date (`GitCooldownDateResolver` in
-      dependabot-core).
+      else the tag's creation date, else the commit date (dependabot-core,
+      `common/lib/dependabot/git_cooldown_date_resolver.rb`).
+    - The Dependabot cooldown applies to version updates only; security updates bypass it and are
+      held back by the arming step's 72-hour age gate. `versioning-strategy: increase` raises the
+      `pyproject.toml` minimum together with `uv.lock`.
   - Green updates auto-merge, majors included. The sweep re-arms only Dependabot and release-please
     PRs, and respects the kill switches.
 - **Kill switches**: a `hold` label (honoured by arming and the sweep, and enforced by a required check)
