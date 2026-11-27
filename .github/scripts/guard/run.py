@@ -39,8 +39,8 @@ def run(env: Mapping[str, str], api: Api | None = None) -> int:
     for reason in verdict.reasons:
         print(f"  guarded: {reason}")
     if verdict.passed:
-        suffix = f" ({verdict.satisfied_by})" if verdict.satisfied_by else ""
+        suffix = f" ({verdict.detail})" if verdict.detail else ""
         print(f"guard: passed{suffix}")
         return 0
-    print(f"guard: FAILED, {verdict.satisfied_by}")
+    print(f"guard: FAILED, {verdict.detail}")
     return 1

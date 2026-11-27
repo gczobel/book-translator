@@ -393,6 +393,10 @@ def test_the_exemption_needs_the_head_in_this_repo() -> None:
         "anthropics/claude-code-action",
         "googleapis/release-please-action",
         "dependabot/fetch-metadata",
+        "anthropics/claude-code-action/base-action",
+        "Actions/Create-Github-App-Token",
+        "GoogleAPIs/release-please-action",
+        "actions/create-github-app-token/sub",
     ],
 )
 def test_bumps_of_secret_handling_actions_need_the_owner(repo: str) -> None:

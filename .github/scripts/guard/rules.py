@@ -70,6 +70,11 @@ _GUARDED = (
 )
 
 
+def _quote(path: str) -> str:
+    """A path safe to print in a CI log: JSON-escaped, so it can't start a workflow command."""
+    return json.dumps(path)
+
+
 def _normalise(path: str) -> str:
     return unicodedata.normalize("NFKC", path).casefold()
 
@@ -257,7 +262,12 @@ class Snapshot:
 class Verdict:
     passed: bool
     reasons: tuple[str, ...] = field(default=())  # why the PR is guarded
-    satisfied_by: str = ""  # why it passed anyway, or why it did not
+    detail: str = ""  # how it passed despite being guarded, or what it is waiting for
+
+
+def _action_key(repo: str) -> str:
+    """`owner/name` of an action, lower-cased: subpaths and case can't dodge the list."""
+    return "/".join(_normalise(repo).split("/")[:2])
 
 
 _WORKFLOW = re.compile(r"\.github/workflows/[^/]+\.ya?ml")
@@ -275,7 +285,9 @@ def _is_exempt_dependabot_bump(pr: PullRequest, f: ChangedFile) -> bool:
     if f.status != "modified" or f.previous_path or not _WORKFLOW.fullmatch(f.path):
         return False
     repos = pin_update_repos(f.patch)
-    return repos is not None and not (repos & SECRET_HANDLING_ACTIONS)
+    if repos is None:
+        return False
+    return not {_action_key(r) for r in repos} & SECRET_HANDLING_ACTIONS
 
 
 def _owner_approved(pr: PullRequest, reviews: Iterable[Review]) -> bool:
@@ -319,8 +331,3 @@ def evaluate(
     if pr.author_id == OWNER_ID and _same_repo(pr):
         return Verdict(True, tuple(reasons), "the owner wrote it (they can't approve their own)")
     return Verdict(False, tuple(reasons), "waiting for the owner's approval of the head commit")
-
-
-def _quote(path: str) -> str:
-    """A path safe to print in a CI log: JSON-escaped, so it can't start a workflow command."""
-    return json.dumps(path)
