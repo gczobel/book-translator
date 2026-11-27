@@ -8,8 +8,9 @@ recorded with resolver `auto`, and the provisional rendering in the draft is rep
 
 import json
 import sqlite3
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
 
 from book_translator.bible import Bible
 from book_translator.config import TK_CONFIDENCE_THRESHOLD
@@ -17,6 +18,7 @@ from book_translator.epub import Epub
 from book_translator.llm import LLM, LLMRequest
 from book_translator.progress import Tick, no_tick
 from book_translator.stages.context import bible_slice
+from book_translator.tolerance import percentage
 
 PROMPT_VERSION = "tk-resolution-v1"
 CONTEXT_BLOCKS = 8
@@ -28,7 +30,7 @@ _PROMPT = (
 
 class Resolution(BaseModel):
     resolution: str = Field(min_length=1)
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: Annotated[float, BeforeValidator(percentage)] = Field(ge=0.0, le=1.0)
 
 
 def create_tables(db: sqlite3.Connection) -> None:

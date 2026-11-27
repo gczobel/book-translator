@@ -3,11 +3,13 @@
 import json
 import re
 import sqlite3
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self, get_args
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, model_validator
 
-TKType = Literal[
+from book_translator.tolerance import choice, percentage
+
+_TK_TYPES = Literal[
     "pun/wordplay",
     "cultural reference",
     "quote/allusion",
@@ -17,6 +19,7 @@ TKType = Literal[
     "new recurring term",
     "dialect",
 ]
+TKType = Annotated[_TK_TYPES, BeforeValidator(choice(*get_args(_TK_TYPES)))]
 
 
 MAX_CANDIDATES = 3
@@ -65,7 +68,7 @@ class DraftedTK(BaseModel):
     # Asked for as the 1-based number of the chosen candidate; stored as that candidate's rendering.
     recommendation: str = Field(json_schema_extra={"type": "integer"})
     confidence: float = Field(ge=0.0, le=1.0)
-    scope: Literal["local", "recurring"]
+    scope: Annotated[Literal["local", "recurring"], BeforeValidator(choice("local", "recurring"))]
 
     @model_validator(mode="before")
     @classmethod
@@ -74,9 +77,7 @@ class DraftedTK(BaseModel):
         if not isinstance(data, dict):
             return data
         data = dict(data)
-        confidence = data.get("confidence")
-        if isinstance(confidence, int | float) and 1 < confidence <= 100:
-            data["confidence"] = confidence / 100  # a percentage
+        data["confidence"] = percentage(data.get("confidence"))
         candidates = data.get("candidates")
         if (
             not isinstance(candidates, list)

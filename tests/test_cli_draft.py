@@ -219,6 +219,15 @@ def test_an_answer_that_stays_invalid_is_saved_and_the_run_stops_with_a_short_me
     assert len(message) < 3000
 
 
+def test_a_tk_type_and_scope_spelled_loosely_are_read_as_the_allowed_ones(ws: Path) -> None:
+    adapter = DraftAdapter(with_tks([tk(type="Cultural Reference", scope="Recurring")]))
+    drafted(ws, adapter)
+
+    stored = stored_tk(ws)
+    assert (stored["type"], stored["scope"]) == ("cultural reference", "recurring")
+    assert adapter.draft_attempts == len(adapter.draft_requests)
+
+
 def test_a_tk_of_an_unknown_type_is_retried(ws: Path) -> None:
     adapter = DraftAdapter(with_tks([tk(type="hunch")]))
 
