@@ -14,11 +14,14 @@ from urllib.parse import unquote
 
 from lxml import etree
 
-from book_translator.inline import EncodedBlock, decode, encode
+from book_translator.inline import EncodedBlock, InlineCodeError, decode, encode
 from book_translator.structure import Book, build_book, find_element
 
 _CONTAINER = "META-INF/container.xml"
 _XML_SUFFIXES = (".xhtml", ".html", ".htm", ".opf", ".ncx", ".xml")
+
+
+__all__ = ["Epub", "EpubError", "InlineCodeError", "open_epub"]
 
 
 class EpubError(Exception):
@@ -74,7 +77,12 @@ class Epub:
         return encode(self._block_element(block_id)[1])
 
     def replace_block(self, block_id: str, encoded: EncodedBlock, text: str) -> None:
-        """Rebuild the block's content from `text`, re-injecting its inline markup."""
+        """Rebuild the block's content from `text`, re-injecting its inline markup.
+
+        Raises InlineCodeError, leaving the document unchanged, if the codes in `text` are not
+        a legal rendering of the block's codes.
+        """
+        encoded.validate(text)
         member, element = self._block_element(block_id)
         decode(element, encoded, text)
         root = element.getroottree()
