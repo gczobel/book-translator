@@ -48,7 +48,9 @@ def _names(pyproject: str, lock: str) -> set[str]:
     return _requirement_names(tomllib.loads(pyproject)) | _lock_names(tomllib.loads(lock))
 
 
-def new_names(base_pyproject: str, head_pyproject: str, base_lock: str, head_lock: str) -> list[str]:
+def new_names(
+    base_pyproject: str, head_pyproject: str, base_lock: str, head_lock: str
+) -> list[str]:
     """Sorted names present in the head files and absent from the base files.
 
     Raises tomllib.TOMLDecodeError for an unreadable file; the caller fails closed.
