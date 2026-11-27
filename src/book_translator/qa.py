@@ -46,6 +46,7 @@ class QAContext:
     open_tks: list[tuple[str, str]] = field(default_factory=list)  # (TK id, block)
     unresolved: list[tuple[str, str]] = field(default_factory=list)  # (block, reason)
     length_band: tuple[float, float] = DEFAULT_LENGTH_BAND
+    variety: str = ""  # the workspace setting; empty when unset
 
 
 _CODES = re.compile(r'<pc id="\d+">|</pc>|<ph id="\d+"/>')
@@ -221,6 +222,11 @@ def unresolved_findings(context: QAContext) -> list[Finding]:
     return [Finding("unresolved_finding", block, why) for block, why in context.unresolved]
 
 
+def setting(db: sqlite3.Connection, key: str) -> str:
+    row = db.execute("select value from settings where key = ?", (key,)).fetchone()
+    return "" if row is None else str(row[0])
+
+
 def length_band(db: sqlite3.Connection) -> tuple[float, float]:
     row = db.execute("select value from settings where key = 'qa_length_band'").fetchone()
     if row is None:
@@ -261,6 +267,7 @@ def load_context(db: sqlite3.Connection, source: Epub, bible: Bible) -> QAContex
         open_tks=[(str(i), str(b)) for i, b in tks],
         unresolved=[(str(b), f"{c}: {r} ({o!r} -> {n!r})") for b, c, r, o, n in unresolved],
         length_band=length_band(db),
+        variety=setting(db, "variety"),
     )
 
 
