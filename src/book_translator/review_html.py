@@ -6,6 +6,7 @@ Self-contained: inline CSS, no network assets, every value HTML-escaped.
 
 from html import escape
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -35,7 +36,7 @@ def write_html(review: Path) -> None:
     html_path(review).write_text(page)
 
 
-def _card(card: dict[str, object]) -> str:
+def _card(card: dict[str, Any]) -> str:
     recommended = escape(str(card.get("recommended", "")))
     options = "".join(
         f"<li{' class="rec"' if str(o) == str(card.get('recommended')) else ''}>"
