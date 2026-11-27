@@ -51,6 +51,8 @@ class FidelityAdapter(ResolveAdapter):
             scene = json.loads(request.source_text)["scene"]
             blocks = [{"id": b["id"], "texts": [t["text"] for t in b["targets"]]} for b in scene]
             return RawAnswer(json.dumps({"blocks": blocks}))
+        if request.stage == "post_polish_fidelity":  # covered in test_cli_refidelity.py
+            return RawAnswer(json.dumps({"edits": []}))
         if request.stage != "fidelity":
             return super().complete(request, key, attempt)
         if attempt == 0:

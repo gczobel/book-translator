@@ -8,7 +8,13 @@ from pathlib import Path
 
 from book_translator import workspace
 from book_translator.budget import CapReachedError, set_cap
-from book_translator.config import DEFAULT_CAP_USD, PROVIDER_KEYS, STAGE_MODELS, VARIETIES
+from book_translator.config import (
+    DEFAULT_CAP_USD,
+    DEFAULT_FIDELITY_RETRIES,
+    PROVIDER_KEYS,
+    STAGE_MODELS,
+    VARIETIES,
+)
 from book_translator.epub import open_epub
 from book_translator.estimate import estimate
 from book_translator.gates import GateError, approve_waiting_gate
@@ -39,6 +45,12 @@ def _parser() -> argparse.ArgumentParser:
         "--skip-analysis-gate",
         action="store_true",
         help="unattended run: accept every recommendation instead of stopping for review",
+    )
+    init.add_argument(
+        "--fidelity-retries",
+        type=int,
+        default=DEFAULT_FIDELITY_RETRIES,
+        help="times to correct and re-check a scene the polish made drift (default: 2)",
     )
     run_cmd = sub.add_parser("run", help="advance the book through its stages (resumable)")
     run_cmd.add_argument("workspace", type=Path)
@@ -98,6 +110,7 @@ def _init(args: argparse.Namespace) -> None:
         sys.exit(f"error: cannot read {epub} as an EPUB: {exc}")
     path: Path = args.workspace or Path(epub.stem)
     settings = {"variety": args.variety, "target": args.target, "cap_usd": f"{args.cap:.2f}"}
+    settings["fidelity_retries"] = str(max(args.fidelity_retries, 0))
     if args.evaluation:
         settings["evaluation"] = "1"
     if args.skip_analysis_gate:
