@@ -201,7 +201,9 @@ def test_run_builds_the_production_adapter_when_the_key_is_set(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     built: list[object] = []
 
-    def fake_run(path: Path, adapter: object, search: object = None) -> None:
+    def fake_run(
+        path: Path, adapter: object, search: object = None, progress: object = None
+    ) -> None:
         built.append(adapter)
 
     monkeypatch.setattr("book_translator.cli.run", fake_run)
@@ -218,3 +220,38 @@ def test_run_refuses_a_folder_that_is_not_a_workspace_without_creating_a_databas
         main(["run", str(tmp_path), "--cap", "5"], adapter=ReplayAdapter({}))
 
     assert list(tmp_path.iterdir()) == []
+
+
+def progress_lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
+    return capsys.readouterr().err.splitlines()
+
+
+def test_run_reports_each_stage_start_and_end_on_stderr(
+    workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    capsys.readouterr()
+    main(["run", str(workspace)], adapter=CountingAdapter(recordings(FIXTURES / "plain.epub")))
+
+    lines = progress_lines(capsys)
+    for stage in ("extraction", "consolidation", "completion", "enrichment"):
+        starts = [i for i, line in enumerate(lines) if f"[{stage}]" in line and "start" in line]
+        ends = [i for i, line in enumerate(lines) if f"[{stage}]" in line and "done" in line]
+        assert starts and ends and starts[0] < ends[-1]
+
+
+def test_quiet_suppresses_the_progress_lines_and_leaves_stdout_alone(
+    workspace: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    recorded = recordings(FIXTURES / "plain.epub")
+    other = tmp_path / "other"
+    main(["init", str(FIXTURES / "plain.epub"), "--workspace", str(other), "--variety", "neutral"])
+    capsys.readouterr()
+
+    main(["run", str(workspace)], adapter=CountingAdapter(recorded))
+    loud = capsys.readouterr()
+    main(["run", str(other), "--quiet"], adapter=CountingAdapter(recorded))
+    quiet = capsys.readouterr()
+
+    assert loud.err.strip() != ""
+    assert quiet.err == ""
+    assert quiet.out.replace(str(other), "W") == loud.out.replace(str(workspace), "W")
