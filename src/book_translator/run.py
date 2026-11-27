@@ -7,6 +7,7 @@ units of work there too, so a second run does only what is left.
 import sqlite3
 from pathlib import Path
 
+from book_translator.budget import Budget
 from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
 from book_translator.llm import LLM, Adapter
@@ -23,7 +24,9 @@ def run(workspace: Path, adapter: Adapter) -> None:
                 "create table if not exists extractions"
                 " (chapter integer primary key, result text not null)"
             )
-        _extraction(db, workspace, LLM(adapter, workspace / DB_NAME))
+        _extraction(
+            db, workspace, LLM(adapter, workspace / DB_NAME, budget=Budget(workspace / DB_NAME))
+        )
     finally:
         db.close()
 
