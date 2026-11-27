@@ -66,8 +66,11 @@ def target_text(context: QAContext, block: str) -> str:
 
 
 def contains(text: str, phrase: str) -> bool:
-    """Whole-word, case-insensitive containment."""
-    return re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text, re.IGNORECASE) is not None
+    """Whole-word, case-insensitive containment (never of an empty phrase)."""
+    return (
+        bool(phrase)
+        and re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text, re.IGNORECASE) is not None
+    )
 
 
 Check = Callable[[QAContext], list[Finding]]
@@ -134,6 +137,51 @@ def length_ratios(context: QAContext) -> list[Finding]:
                     f"target is {ratio:.2f} times the source's length (band {low} to {high})",
                 )
             )
+    return found
+
+
+_NUMBER = re.compile(r"\d+(?:[.,\u00a0 ]\d{3})*(?:[.,]\d+)?")
+_NAME = re.compile(r"[A-Z][\w'-]*")
+_SENTENCE_END = '.!?\u2026"\u201c\u00ab\u2014:'
+
+
+def _digits(number: str) -> str:
+    return re.sub(r"\D", "", number)
+
+
+def _names(text: str) -> list[str]:
+    """Capitalised words that are not merely the first word of a sentence."""
+    found = []
+    for match in _NAME.finditer(text):
+        before = text[: match.start()].rstrip()
+        if before and before[-1] not in _SENTENCE_END:
+            found.append(re.sub(r"['\u2019]s$", "", match.group()))
+    return found
+
+
+@check("numbers")
+def numbers(context: QAContext) -> list[Finding]:
+    found = []
+    for block in context.sources:
+        target = {_digits(n) for n in _NUMBER.findall(target_text(context, block))}
+        for number in _NUMBER.findall(source_text(context, block)):
+            if _digits(number) not in target:
+                found.append(
+                    Finding("numbers", block, f"the number {number!r} is not in the target")
+                )
+    return found
+
+
+@check("names")
+def names(context: QAContext) -> list[Finding]:
+    """Capitalised names of the source stay in the target, or appear as their glossary rendering."""
+    rendered = {e.term: e.rendering for e in context.bible.glossary}
+    found = []
+    for block in context.sources:
+        target = target_text(context, block)
+        for name in dict.fromkeys(_names(source_text(context, block))):
+            if not contains(target, name) and not contains(target, rendered.get(name, "")):
+                found.append(Finding("names", block, f"the name {name!r} is not in the target"))
     return found
 
 

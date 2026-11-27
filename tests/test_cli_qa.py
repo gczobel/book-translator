@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from book_translator import main
+from book_translator.epub import open_epub
 from book_translator.llm import LLMRequest, RawAnswer
 from test_cli_bible_part2 import EPUB
 from test_cli_draft import source_ids
@@ -116,6 +117,34 @@ def test_a_blank_target_is_an_omission_and_a_lopsided_one_breaks_the_length_band
     assert (blank_block, "omission") in findings(ws)
     assert (long_block, "length_ratio") in findings(ws)
     assert (long_block, "omission") not in findings(ws)
+
+
+def set_source(ws: Path, block: str, text: str) -> None:
+    """Change a source block's text, as a book with numbers and names would have it."""
+    source = open_epub(ws / "source.epub")
+    source.replace_block(block, source.encode_block(block), text)
+    source.write(ws / "source.epub")
+
+
+def test_numbers_and_names_of_the_source_must_reach_the_target(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    glossary = [{"term": "Hiram", "rendering": "Hiram el Viejo", "origin": "established"}]
+    adapter = CountingAdapter(glossary=glossary)
+    ws = translate(tmp_path, adapter)
+    block, other = source_ids()[1], source_ids()[2]
+    set_source(ws, block, "It was 1,200 quiet evenings in Hiram's town. Then Mary left.")
+    set_target(ws, block, "Fueron 1.200 tardes en el pueblo de Hiram el Viejo. Mary se fue.")
+    qa(ws, adapter, capsys)
+    assert findings(ws) == []  # separators, glossary renderings and names are allowed
+
+    set_target(ws, block, "Fueron muchas tardes tranquilas en el pueblo. Entonces se fue.")
+    out = qa(ws, adapter, capsys)
+
+    assert "'Mary'" in out  # a name with no glossary entry must be there itself
+    assert (block, "numbers") in findings(ws)
+    assert (block, "names") in findings(ws)
+    assert [f for f in findings(ws) if f[0] == other] == []
 
 
 def test_the_length_band_is_configurable(
