@@ -1,11 +1,9 @@
 """Seam 1: the CLI. `evaluate --judge` marks errors per scene, `--diagnose` explains the report,
-`--comet` adds a COMET score, and the report says whether the run was an evaluation run. The LLM
-is a replay adapter, COMET a fake, embeddings a deterministic fake: nothing paid or downloaded."""
+and the report says whether the run was an evaluation run. The LLM is a replay adapter,
+embeddings a deterministic fake: nothing paid or downloaded."""
 
 import json
 import sqlite3
-import sys
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -142,57 +140,6 @@ def test_an_evaluation_workspace_is_reported_without_a_warning(
     assert "evaluation mode: on" in (path / "quality-report.md").read_text().lower()
 
 
-class FakeComet:
-    """Scores a (source, translation, reference) triple by how long the translation is."""
-
-    def __init__(self) -> None:
-        self.calls: list[list[tuple[str, str, str]]] = []
-
-    def score(self, triples: Sequence[tuple[str, str, str]]) -> list[float]:
-        self.calls.append(list(triples))
-        return [len(mt) / 100 for _, mt, _ in triples]
-
-
-def test_comet_scores_are_added_only_when_the_flag_is_set(ws: Path, ref: Path) -> None:
-    comet = FakeComet()
-    main(
-        ["evaluate", str(ws), "--reference", str(ref)],
-        embedder=FakeEmbedder(),
-        comet=comet,
-    )
-    assert comet.calls == []
-    assert "comet" not in json.loads((ws / REPORT).read_text())
-
-    main(
-        ["evaluate", str(ws), "--reference", str(ref), "--comet"],
-        embedder=FakeEmbedder(),
-        comet=comet,
-    )
-
-    report = json.loads((ws / REPORT).read_text())
-    scenes = report["comet"]["scenes"]
-    assert len(scenes) == len(comet.calls[0]) > 0
-    assert report["comet"]["overall"] == pytest.approx(
-        sum(s["score"] for s in scenes) / len(scenes)
-    )
-    assert "COMET" in (ws / "quality-report.md").read_text()
-
-
-def test_without_the_comet_package_the_error_names_it(
-    ws: Path, ref: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setitem(sys.modules, "comet", None)  # the import fails
-
-    with pytest.raises(SystemExit) as stop:
-        main(
-            ["evaluate", str(ws), "--reference", str(ref), "--comet"],
-            embedder=FakeEmbedder(),
-        )
-
-    assert "unbabel-comet" in str(stop.value)
-    assert not (ws / REPORT).exists()
-
-
 def test_the_diagnosis_lists_likely_causes_and_suggested_fixes(ws: Path, ref: Path) -> None:
     adapter = JudgeAdapter()
 
@@ -216,13 +163,9 @@ def test_rerunning_the_diagnosis_is_served_from_the_cache(ws: Path, ref: Path) -
     assert report["diagnosis"] == [{"cause": "register drift", "fix": "tighten the polish"}]
 
 
-def test_a_missing_adapter_is_refused_before_the_comet_model_runs(ws: Path, ref: Path) -> None:
+def test_a_missing_adapter_is_refused_before_anything_runs(ws: Path, ref: Path) -> None:
     from book_translator.evaluate import EvaluateError
     from book_translator.evaluate import evaluate as run_evaluate
 
-    comet = FakeComet()
-
     with pytest.raises(EvaluateError, match="adapter"):
-        run_evaluate(ws, ref, FakeEmbedder(), judge=True, comet=comet)
-
-    assert comet.calls == []
+        run_evaluate(ws, ref, FakeEmbedder(), judge=True)
