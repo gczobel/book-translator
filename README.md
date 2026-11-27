@@ -4,13 +4,15 @@ Multi-pass literary book translator. EPUB in, translated EPUB out, an LLM doing 
 professional translator does: macro analysis and style sheet, scene-level drafting, blind
 cadence polish, fidelity gate, deterministic QA.
 
-**Status:** pre-design. Research is done, the design interview (`/grill-with-docs`) has not
-started. Read [`CONTEXT.md`](CONTEXT.md) first.
+**Status:** design. Decisions are recorded, and no pipeline code exists yet. Start with
+[`docs/history.md`](docs/history.md), [`GLOSSARY.md`](GLOSSARY.md) and [`docs/adr/`](docs/adr/).
 
 ## Layout
 
-- `docs/research/` — the two research reports behind the design
-- `archive/` — raw Gemini chat dump and transcript the research came from
+- `docs/history.md`: how the project started
+- `docs/research/`: the two research reports behind the design
+- `docs/reference/`: condensed external standards (ePubLibre)
+- `docs/adr/`, `GLOSSARY.md`: decisions and vocabulary
 - `src/book_translator/` — package (Python 3.12, `uv`)
 
 ## Dev
