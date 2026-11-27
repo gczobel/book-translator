@@ -134,6 +134,46 @@ def review_schema(
     return SceneReview
 
 
+def scene_targets(db: sqlite3.Connection, scene: Scene) -> dict[str, dict[int, str]]:
+    """The scene's target texts by source block id and position."""
+    targets: dict[str, dict[int, str]] = defaultdict(dict)
+    for block, position, text in db.execute(
+        "select source, position, text from targets order by source, position"
+    ):
+        if block in scene.ids:
+            targets[str(block)][int(position)] = str(text)
+    return targets
+
+
+def review_request(
+    stage: str,
+    prompt_version: str,
+    model: str,
+    scene: Scene,
+    targets: dict[str, dict[int, str]],
+    bible: Bible,
+    encoded: dict[str, EncodedBlock],
+) -> LLMRequest:
+    """The request asking a reviewer to compare the scene's targets with its source."""
+    shown = " ".join(e.text for e in encoded.values())
+    view = [
+        {
+            "id": i,
+            "source": encoded[i].text,
+            "targets": [{"position": p, "text": t} for p, t in sorted(targets.get(i, {}).items())],
+        }
+        for i in scene.ids
+    ]
+    return LLMRequest(
+        stage=stage,
+        prompt_version=prompt_version,
+        model=model,
+        prompt=_PROMPT,
+        bible_slice=bible_slice(bible, shown, scene.chapter, scene.ids),
+        source_text=json.dumps({"scene": view}),
+    )
+
+
 def review(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model: str) -> None:
     """Review every scene not yet reviewed. A scene's edits are applied in one step."""
     require_no_open_tks(db)
@@ -141,32 +181,9 @@ def review(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model: 
     for scene in scenes(source):
         if scene.ids[0] in done:
             continue
-        targets: dict[str, dict[int, str]] = defaultdict(dict)
-        for block, position, text in db.execute(
-            "select source, position, text from targets order by source, position"
-        ):
-            if block in scene.ids:
-                targets[str(block)][int(position)] = str(text)
+        targets = scene_targets(db, scene)
         encoded = {i: source.encode_block(i) for i in scene.ids}
-        shown = " ".join(e.text for e in encoded.values())
-        view = [
-            {
-                "id": i,
-                "source": encoded[i].text,
-                "targets": [
-                    {"position": p, "text": t} for p, t in sorted(targets.get(i, {}).items())
-                ],
-            }
-            for i in scene.ids
-        ]
-        request = LLMRequest(
-            stage="fidelity",
-            prompt_version=PROMPT_VERSION,
-            model=model,
-            prompt=_PROMPT,
-            bible_slice=bible_slice(bible, shown, scene.chapter, scene.ids),
-            source_text=json.dumps({"scene": view}),
-        )
+        request = review_request("fidelity", PROMPT_VERSION, model, scene, targets, bible, encoded)
         result = llm.call(request, review_schema(scene.ids, targets, encoded, bible)).output
         with db:
             for edit in result.edits:
