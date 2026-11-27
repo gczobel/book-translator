@@ -1,0 +1,44 @@
+# Dependency updates (ADR 0005). Dependabot proposes; the arming workflow decides what merges.
+version: 2
+
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    # A new release waits out the cooldown before it is proposed: 7 days, 30 for a major.
+    # The cooldown applies to version updates only; security updates arrive at once and are
+    # held back by the arming workflow's own age gate instead.
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    # Raise the minimum in pyproject.toml together with uv.lock, so the two never disagree.
+    versioning-strategy: increase
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      uv-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # The interpreter is chosen by the owner (.python-version, requires-python), never bumped
+      # by a bot. Naming each version-update type keeps this from silencing security updates.
+      - dependency-name: python
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Dependabot supports only default-days for GitHub Actions, so majors wait 7 days too.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]

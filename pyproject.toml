@@ -41,3 +41,11 @@ src = ["src", "tests", ".github/scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.uv]
+# Resolver-level cooldown (ADR 0005): ignore any release younger than 7 days, including
+# indirect ones that Dependabot's own cooldown never sees.
+exclude-newer = "7 days"
+# TEMPORARY: these four were already locked when the cooldown was added and are younger than
+# 7 days, so the lock would not resolve. Delete this line after 2026-11-30, once they have aged.
+exclude-newer-package = { pyyaml = "1 day", types-pyyaml = "1 day", zizmor = "1 day", packaging = "1 day" }
