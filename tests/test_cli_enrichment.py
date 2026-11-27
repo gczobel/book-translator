@@ -97,3 +97,37 @@ def test_famous_real_world_names_get_their_usual_spanish_form_with_a_source(ws: 
     assert glossary["London"]["source"] == "https://example.org/london"
     assert glossary["Queen Victoria"]["rendering"] == "la reina Victoria"
     assert "Canterville" not in glossary  # nothing established, so nothing invented
+
+
+def test_evaluation_mode_looks_nothing_up(tmp_path: Path) -> None:
+    path = tmp_path / "ws"
+    main(["init", str(EPUB), "--workspace", str(path), "--variety", "neutral", "--evaluation"])
+    search = FixtureSearch(TABLE)
+
+    main(["run", str(path)], adapter=EnrichAdapter({"names": NAMES}), search=search)
+
+    assert [g for g in bible(path)["glossary"] if g["origin"] == "established"] == []
+    assert [q for q, _ in search.asked if q in {n["term"] for n in NAMES}] == []
+
+
+def test_an_interrupted_lookup_resumes_without_asking_again(ws: Path) -> None:
+    class Interrupted(FixtureSearch):
+        def lookup(self, query: str, language: str, *, established: bool) -> list[Finding]:
+            if query == "Queen Victoria":
+                raise KeyboardInterrupt
+            return super().lookup(query, language, established=established)
+
+    with pytest.raises(KeyboardInterrupt):
+        main(["run", str(ws)], adapter=EnrichAdapter({"names": NAMES}), search=Interrupted(TABLE))
+
+    second = FixtureSearch(TABLE)
+    adapter = EnrichAdapter({"names": NAMES})
+    main(["run", str(ws)], adapter=adapter, search=second)
+
+    assert [q for q, _ in second.asked] == ["Queen Victoria", "Canterville"]
+    assert adapter.enrichment_requests == []  # the model's answer was already recorded
+    assert {g["term"] for g in bible(ws)["glossary"]} == {"London", "Queen Victoria"}
+
+    third = FixtureSearch(TABLE)
+    main(["run", str(ws)], adapter=EnrichAdapter({}), search=third)
+    assert third.asked == []

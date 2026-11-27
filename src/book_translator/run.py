@@ -131,7 +131,8 @@ def _enrichment(db: sqlite3.Connection, llm: LLM, search: Search | None) -> None
     bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
     found = llm.call(enrichment_request(STAGE_MODELS["enrichment"], db, bible), Enrichment).output
     target = db.execute("select value from settings where key = 'target'").fetchone()
-    if search is not None:
+    evaluation = db.execute("select value from settings where key = 'evaluation'").fetchone()
+    if search is not None and evaluation is None:  # ADR 0004: no lookups in evaluation mode
         look_up_names(db, search, found.names, str(target[0]) if target else "es")
     with db:
         db.execute("delete from bible")
