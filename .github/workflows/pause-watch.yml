@@ -1,0 +1,50 @@
+name: pause-watch
+
+# Daily check that the pause switch can be read. Everything else stops when it can't (see
+# pause.yml); this is what tells the owner. A deliberate `true` is not an alarm.
+#
+# This is automation that deliberately does NOT stop when paused: it is how the owner finds out
+# the switch is broken. It is the one scheduled workflow exempt from the pause gate.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+# Least privilege by default; each job asks for what it needs (ADR 0005).
+permissions: {}
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      state: ${{ steps.pause.outputs.state }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - id: pause
+        run: python3 -m pause
+        env:
+          PYTHONPATH: .github/scripts
+          PAUSE_VALUE: ${{ vars.PAUSE }}
+
+  # Also fires when the read job failed (its state is then empty).
+  escalate:
+    needs: [read]
+    if: ${{ always() && needs.read.outputs.state != 'run' && needs.read.outputs.state != 'paused' }}
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+        with:
+          reason: pause-unreadable
+          key: pause-unreadable
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}

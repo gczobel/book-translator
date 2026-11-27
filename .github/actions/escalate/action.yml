@@ -1,0 +1,44 @@
+name: escalate
+description: >
+  Open or update one ready-for-human issue for a problem. A job that uses this must declare
+  `environment: maintenance` and pass the App's private key in: environment secrets are not
+  available inside a called reusable workflow, which is why this is an action, not a workflow.
+  The inputs are structured on purpose; the issue text comes from the script, never from PR,
+  issue, log or release text.
+
+inputs:
+  reason:
+    description: Reason code from the table in .github/scripts/escalate/core.py
+    required: true
+  key:
+    description: One problem, one key (a-z 0-9 . _ -, at most 64 characters)
+    required: true
+  ref:
+    description: Related PR or issue number, if any
+    required: false
+    default: ""
+  app-id:
+    description: The maintenance App's ID (vars.MAINT_APP_ID)
+    required: true
+  private-key:
+    description: The maintenance App's private key (secrets.MAINT_APP_PRIVATE_KEY)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # A maintenance App token limited to issues, revoked when the job ends.
+    - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+      id: token
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
+        permission-issues: write
+    - run: python3 -m escalate
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.workspace }}/.github/scripts
+        GH_TOKEN: ${{ steps.token.outputs.token }}
+        ESCALATE_REASON: ${{ inputs.reason }}
+        ESCALATE_KEY: ${{ inputs.key }}
+        ESCALATE_REF: ${{ inputs.ref }}

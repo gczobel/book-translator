@@ -17,16 +17,16 @@ name: pause
 #       if: ${{ needs.gate.outputs.paused == 'false' }}
 #
 # The owner sets the repository variable PAUSE to `true` to stop everything and back to
-# `false` to resume. Anything else, or no variable at all, counts as "can't be read": the
-# workflow reports paused and opens a ready-for-human issue through the escalation job.
-# Callers run in the main context, as the escalation job's environment requires.
+# `false` to resume. Anything else, or no variable at all, counts as "can't be read" and
+# reports paused. pause-watch.yml checks the switch daily and opens a ready-for-human issue
+# when it can't be read, so no caller has to remember to.
 on:
   workflow_call:
     outputs:
       paused:
         description: "'false' only when automation may run; test for exactly 'false'"
         value: ${{ jobs.read.outputs.paused }}
-  # Manual run, for the owner to check the switch and the escalation (live check, #27).
+  # Manual run, for the owner to check the switch (live check, #27).
   workflow_dispatch:
 
 # Least privilege by default; each job asks for what it needs (ADR 0005).
@@ -49,15 +49,3 @@ jobs:
         env:
           PYTHONPATH: .github/scripts
           PAUSE_VALUE: ${{ vars.PAUSE }}
-
-  # Tell the owner when the switch can't be read, including when the read job itself failed
-  # (its state is then empty). A deliberate `true` is not an alarm.
-  escalate:
-    needs: [read]
-    if: ${{ always() && needs.read.outputs.state != 'run' && needs.read.outputs.state != 'paused' }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/escalate.yml # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
-    with:
-      reason: pause-unreadable
-      key: pause-unreadable

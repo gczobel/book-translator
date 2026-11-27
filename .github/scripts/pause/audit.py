@@ -20,6 +20,10 @@ GATE_WORKFLOW = "./.github/workflows/pause.yml"
 # A test also requires that none of them is scheduled or triggered by another workflow.
 EXEMPT_WORKFLOWS = frozenset({"ci", "workflow-security", "guard", "hold", "escalate", "pause"})
 
+# The one scheduled workflow that must keep running while paused: it tells the owner the
+# switch can't be read.
+SWITCH_WATCHDOG = "pause-watch"
+
 # Downstream conditions that are false when the upstream job was skipped. Anything else
 # (always(), !cancelled(), result checks, ...) might run while paused and is rejected.
 _SKIP_SAFE_CONDITIONS = frozenset({"failure()", "cancelled()", "failure() || cancelled()"})

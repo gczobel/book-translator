@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 import yaml
 
-from pause.audit import EXEMPT_WORKFLOWS, GATE_WORKFLOW, ungated_jobs
+from pause.audit import EXEMPT_WORKFLOWS, GATE_WORKFLOW, SWITCH_WATCHDOG, ungated_jobs
 
 WORKFLOWS = Path(__file__).resolve().parent.parent / ".github" / "workflows"
 RUN = "${{ needs.gate.outputs.paused == 'false' }}"
@@ -108,7 +108,7 @@ def test_a_workflow_with_no_jobs_is_fine() -> None:
 def test_every_automation_workflow_reads_the_pause_switch() -> None:
     problems: dict[str, list[str]] = {}
     for path in sorted(WORKFLOWS.glob("*.yml")):
-        if path.stem in EXEMPT_WORKFLOWS:
+        if path.stem in EXEMPT_WORKFLOWS or path.stem == SWITCH_WATCHDOG:
             continue
         loaded = yaml.safe_load(path.read_text())
         jobs = ungated_jobs(loaded)
@@ -135,3 +135,9 @@ def test_exempt_workflows_are_not_triggered_without_a_human_or_a_pull_request() 
         triggers = loaded.get("on", loaded.get(True))  # YAML 1.1 reads `on:` as True
         names = set(triggers) if isinstance(triggers, dict) else {triggers}
         assert not names & UNATTENDED_TRIGGERS, f"{name}.yml runs unattended: gate it instead"
+
+
+def test_the_switch_watchdog_exists_and_is_scheduled() -> None:
+    loaded = yaml.safe_load((WORKFLOWS / f"{SWITCH_WATCHDOG}.yml").read_text())
+    triggers = loaded.get("on", loaded.get(True))
+    assert "schedule" in triggers

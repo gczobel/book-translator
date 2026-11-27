@@ -1,36 +1,28 @@
 name: escalate
 
-# Reusable: any unattended workflow calls this when it fails, is cancelled or gives up.
+# Manual trigger, for the owner to test the escalation loop (the live check, ticket #27).
+#
+# Unattended workflows escalate from one of their own jobs, using the action, because
+# environment secrets are not available inside a called reusable workflow:
 #
 #   escalate:
 #     needs: [the-jobs]
 #     if: ${{ failure() || cancelled() }}
+#     runs-on: ubuntu-latest
+#     environment: maintenance   # main-only; so callers run in the main context
 #     permissions:
-#       contents: read   # a called workflow can't exceed its caller's permissions
-#     uses: ./.github/workflows/escalate.yml
-#     with: { reason: workflow-failed, key: some-problem-key }
-#
-# The inputs are structured on purpose (a reason code and a strict key, validated by the
-# script); the issue text comes from the script, never from PR, issue, log or release text.
-# The `maintenance` environment only allows runs from main, so callers must run in the main
-# context (schedule, push to main, workflow_run, dispatch), never on `pull_request`.
+#       contents: read
+#     steps:
+#       - uses: actions/checkout@<pin>
+#         with:
+#           persist-credentials: false
+#       - uses: ./.github/actions/escalate
+#         with:
+#           reason: workflow-failed
+#           key: some-problem-key
+#           app-id: ${{ vars.MAINT_APP_ID }}
+#           private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
 on:
-  workflow_call:
-    inputs:
-      reason:
-        description: Reason code from the table in .github/scripts/escalate/core.py
-        type: string
-        required: true
-      key:
-        description: One problem, one key (a-z 0-9 . _ -, at most 64 characters)
-        type: string
-        required: true
-      ref:
-        description: Related PR or issue number, if any
-        type: string
-        required: false
-        default: ""
-  # Manual trigger, for the owner to test the loop (the live check, ticket #27).
   workflow_dispatch:
     inputs:
       reason:
@@ -66,17 +58,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      # A maintenance App token limited to issues, revoked when the job ends.
-      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
-        id: token
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
         with:
+          reason: ${{ inputs.reason }}
+          key: ${{ inputs.key }}
+          ref: ${{ inputs.ref }}
           app-id: ${{ vars.MAINT_APP_ID }}
           private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
-          permission-issues: write
-      - run: python3 -m escalate
-        env:
-          PYTHONPATH: .github/scripts
-          GH_TOKEN: ${{ steps.token.outputs.token }}
-          ESCALATE_REASON: ${{ inputs.reason }}
-          ESCALATE_KEY: ${{ inputs.key }}
-          ESCALATE_REF: ${{ inputs.ref }}
