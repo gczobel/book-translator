@@ -1,0 +1,20 @@
+{
+  "info": {
+    "name": "pytest",
+    "version": "9.2.0"
+  },
+  "urls": [
+    {
+      "filename": "pytest-9.2.0-py3-none-any.whl",
+      "packagetype": "bdist_wheel",
+      "upload_time_iso_8601": "2026-10-27T21:30:19.131148Z",
+      "yanked": false
+    },
+    {
+      "filename": "pytest-9.2.0.tar.gz",
+      "packagetype": "sdist",
+      "upload_time_iso_8601": "2026-10-27T21:30:20.728655Z",
+      "yanked": false
+    }
+  ]
+}
