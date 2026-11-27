@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.ttGlyphPen import TTGlyphPen
+from fontTools.ttLib import TTCollection, TTFont
 
 from book_translator.build import SyncEdits, apply_synchronized_edits
 from book_translator.epub import open_epub
@@ -159,3 +160,38 @@ def test_synchronized_edits_fail_when_a_font_lacks_the_target_language(tmp_path:
 
     with pytest.raises(FontCoverageError, match="Tiny.ttf lacks ñ"):
         apply_synchronized_edits(open_epub(path), SyncEdits(language="es"))
+
+
+def test_a_font_without_a_usable_cmap_counts_as_missing_every_glyph(tmp_path: Path) -> None:
+    font = TTFont(io.BytesIO(make_font(SPANISH_ALL)))
+    font["cmap"].tables = font["cmap"].tables[:1]
+    table = font["cmap"].tables[0]
+    table.platformID, table.platEncID = 1, 0  # Mac Roman only: no Unicode cmap
+    out = io.BytesIO()
+    font.save(out)
+    path = epub_with_fonts(tmp_path, {"Mac.ttf": out.getvalue()})
+
+    with pytest.raises(FontCoverageError, match="Mac.ttf"):
+        check_font_coverage(open_epub(path), "es")
+
+
+def test_a_font_collection_is_read_through_its_first_font(tmp_path: Path) -> None:
+    collection = TTCollection()
+    collection.fonts = [TTFont(io.BytesIO(make_font(SPANISH_ALL)))]
+    out = io.BytesIO()
+    collection.save(out)
+    path = epub_with_fonts(tmp_path, {"Tiny.ttc": out.getvalue()})
+
+    check_font_coverage(open_epub(path), "es")
+
+
+def test_a_manifest_font_missing_from_the_archive_is_a_coverage_error(tmp_path: Path) -> None:
+    path = epub_with_fonts(tmp_path, {"Gone.ttf": make_font(SPANISH_ALL)})
+    stripped = tmp_path / "stripped.epub"
+    with zipfile.ZipFile(path) as src, zipfile.ZipFile(stripped, "w") as dst:
+        for info in src.infolist():
+            if not info.filename.endswith("Gone.ttf"):
+                dst.writestr(info, src.read(info.filename))
+
+    with pytest.raises(FontCoverageError, match="Gone.ttf"):
+        check_font_coverage(open_epub(stripped), "es")
