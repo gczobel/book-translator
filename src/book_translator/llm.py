@@ -8,6 +8,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ValidationError
 
+from book_translator.budget import Budget
 from book_translator.cache import CallCache
 from book_translator.config import PRICES
 
@@ -77,9 +78,22 @@ def request_key(request: LLMRequest) -> str:
     return hashlib.sha256(json.dumps(parts).encode()).hexdigest()
 
 
+def _projected_cost(request: LLMRequest) -> float:
+    """A rough guess before the call: about 4 characters per token, and as many tokens back."""
+    tokens = (len(request.prompt) + len(request.bible_slice) + len(request.source_text)) // 4
+    return cost_of(request.model, tokens, tokens)
+
+
 class LLM:
-    def __init__(self, adapter: Adapter, database: Path, max_attempts: int = 3) -> None:
+    def __init__(
+        self,
+        adapter: Adapter,
+        database: Path,
+        max_attempts: int = 3,
+        budget: Budget | None = None,
+    ) -> None:
         self._adapter = adapter
+        self._budget = budget
         self._cache = CallCache(database)
         self._max_attempts = max_attempts
 
@@ -91,7 +105,13 @@ class LLM:
         input_tokens = output_tokens = 0
         error: ValidationError | None = None
         for attempt in range(self._max_attempts):
+            if self._budget is not None:
+                self._budget.check(_projected_cost(request))
             raw = self._adapter.complete(request, key, attempt)
+            if self._budget is not None:
+                self._budget.record(
+                    request.stage, cost_of(request.model, raw.input_tokens, raw.output_tokens)
+                )
             input_tokens += raw.input_tokens
             output_tokens += raw.output_tokens
             try:

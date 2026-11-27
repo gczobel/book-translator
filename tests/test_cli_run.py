@@ -10,6 +10,7 @@ from book_translator import main
 from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
 from book_translator.llm import LLMRequest, RawAnswer, request_key
+from book_translator.pydantic_ai_adapter import PydanticAIAdapter
 from book_translator.replay import ReplayAdapter
 from book_translator.stages.extract import extraction_request
 
@@ -91,3 +92,80 @@ def test_running_a_finished_stage_costs_nothing(workspace: Path) -> None:
     main(["run", str(workspace)], adapter=again)
 
     assert again.calls == 0
+
+
+# Each replayed call costs $0.0105 (1000 input and 500 output tokens at the sonnet price).
+def costly(recorded: dict[str, str], **kwargs: int | None) -> CountingAdapter:
+    adapter = CountingAdapter(recorded, **kwargs)
+    adapter._replay = ReplayAdapter(recorded, input_tokens=1000, output_tokens=500)
+    return adapter
+
+
+def test_the_run_stops_before_the_call_that_would_cross_the_cap(
+    workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    adapter = costly(recordings(FIXTURES / "plain.epub"))
+
+    with pytest.raises(SystemExit) as stop:
+        main(["run", str(workspace), "--cap", "0.015"], adapter=adapter)
+
+    assert adapter.calls == 1
+    assert "cap" in str(stop.value).lower()
+    assert rows(workspace, "select count(*) from extractions") == [(1,)]
+    assert rows(workspace, "select stage, status from stages") == [("extraction", "running")]
+
+
+def test_raising_the_cap_resumes_without_repeating_or_losing_work(workspace: Path) -> None:
+    recorded = recordings(FIXTURES / "plain.epub")
+    first = costly(recorded)
+    with pytest.raises(SystemExit):
+        main(["run", str(workspace), "--cap", "0.015"], adapter=first)
+
+    second = costly(recorded)
+    main(["run", str(workspace), "--cap", "1"], adapter=second)
+
+    assert first.calls + second.calls == 2
+    assert rows(workspace, "select count(*) from extractions") == [(2,)]
+    assert rows(workspace, "select stage, status from stages") == [("extraction", "done")]
+    assert rows(workspace, "select round(sum(cost_usd), 4) from spend") == [(0.021,)]
+
+
+def test_a_run_over_a_tiny_cap_stops_before_any_call_when_the_cap_is_spent(
+    workspace: Path,
+) -> None:
+    recorded = recordings(FIXTURES / "plain.epub")
+    with pytest.raises(SystemExit):
+        main(["run", str(workspace), "--cap", "0.015"], adapter=costly(recorded))
+
+    again = costly(recorded)
+    with pytest.raises(SystemExit):
+        main(["run", str(workspace)], adapter=again)
+
+    assert again.calls == 0
+
+
+def test_run_without_a_provider_key_exits_with_a_clear_message(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    with pytest.raises(SystemExit) as stop:
+        main(["run", str(workspace)])
+
+    assert "ANTHROPIC_API_KEY" in str(stop.value)
+
+
+def test_run_builds_the_production_adapter_when_the_key_is_set(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    built: list[object] = []
+
+    def fake_run(path: Path, adapter: object, search: object = None) -> None:
+        built.append(adapter)
+
+    monkeypatch.setattr("book_translator.cli.run", fake_run)
+
+    main(["run", str(workspace)])
+
+    assert isinstance(built[0], PydanticAIAdapter)
