@@ -169,18 +169,48 @@ NOTES_OPF = OPF.replace(
     '<item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/>\n'
     '    <item id="n" href="notes.xhtml" media-type="application/xhtml+xml"/>',
 ).replace('<itemref idref="c2"/>', '<itemref idref="c2"/>\n    <itemref idref="n"/>')
-NOTES_1 = page(
-    '<h1>One</h1>\n<p>Born in the town.<a id="rf1" href="notes.xhtml#nt1">[1]</a></p>\n'
-)
+NOTES_1 = page('<h1>One</h1>\n<p>Born in the town.<a id="rf1" href="notes.xhtml#nt1">[1]</a></p>\n')
 NOTES_2 = page(
     '<h1>Two</h1>\n<p>Said the <i>maire</i>.<a id="rf2" href="notes.xhtml#nt2">[2]</a> '
-    'Then left.</p>\n'
+    "Then left.</p>\n"
 )
 NOTES_PAGE = page(
     "<h2>Notes</h2>\n"
     '<p id="nt1">1. A small town.<a href="ch1.xhtml#rf1">back</a></p>\n'
     '<p id="nt2">2. The mayor.<a href="ch2.xhtml#rf2">back</a></p>\n'
 )
+
+# Front and back matter told apart by file name and spine position alone (EPUB 2, no
+# epub:type): cover, synopsis, title page, credits and an untitled dedication in front;
+# notes and about the author behind the chapters.
+MATTER_FILES = [
+    ("cover", "cover.xhtml"),
+    ("syn", "synopsis.xhtml"),
+    ("tp", "titlepage.xhtml"),
+    ("cr", "credits.xhtml"),
+    ("ded", "dedication.xhtml"),
+    ("c1", "ch1.xhtml"),
+    ("c2", "ch2.xhtml"),
+    ("n", "notes.xhtml"),
+    ("au", "about-the-author.xhtml"),
+]
+MATTER_OPF = OPF.replace(
+    '    <item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>\n'
+    '    <item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/>\n',
+    "".join(
+        f'    <item id="{i}" href="{h}" media-type="application/xhtml+xml"/>\n'
+        for i, h in MATTER_FILES
+    ),
+).replace(
+    '    <itemref idref="c1"/>\n    <itemref idref="c2"/>\n',
+    "".join(f'    <itemref idref="{i}"/>\n' for i, _ in MATTER_FILES),
+)
+MATTER_COVER = page('<p><img src="images/dot.png" alt="Cover"/></p>\n')
+MATTER_SYNOPSIS = page("<h1>Synopsis</h1>\n<p>A quiet town keeps a loud secret.</p>\n")
+MATTER_TITLE_PAGE = page('<h1>Synthetic Tale</h1>\n<p class="author">Nobody</p>\n')
+MATTER_CREDITS = page("<p>First published as Un Cuento. Copyright Nobody.</p>\n")
+MATTER_DEDICATION = page("<p><i>For the one who stayed.</i></p>\n")
+MATTER_ABOUT = page("<h2>About the author</h2>\n<p>Nobody lives nowhere.</p>\n")
 
 
 def write(name: str, files: dict[str, bytes | str], *, ncx: str = NCX, opf: str = OPF) -> None:
@@ -218,6 +248,21 @@ def main() -> None:
         "notes.epub",
         {"ch1.xhtml": NOTES_1, "ch2.xhtml": NOTES_2, "notes.xhtml": NOTES_PAGE},
         opf=NOTES_OPF,
+    )
+    write(
+        "matter.epub",
+        {
+            "cover.xhtml": MATTER_COVER,
+            "synopsis.xhtml": MATTER_SYNOPSIS,
+            "titlepage.xhtml": MATTER_TITLE_PAGE,
+            "credits.xhtml": MATTER_CREDITS,
+            "dedication.xhtml": MATTER_DEDICATION,
+            "ch1.xhtml": NOTES_1,
+            "ch2.xhtml": NOTES_2,
+            "notes.xhtml": NOTES_PAGE,
+            "about-the-author.xhtml": MATTER_ABOUT,
+        },
+        opf=MATTER_OPF,
     )
 
 

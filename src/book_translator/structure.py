@@ -16,11 +16,23 @@ from urllib.parse import unquote
 from lxml import etree
 
 BlockKind = Literal["paragraph", "heading", "verse", "list_item"]
+MatterKind = Literal[
+    "cover", "synopsis", "title_page", "credits", "dedication", "about_author", "notes"
+]
 
 _HEADINGS = {f"h{n}" for n in range(1, 7)}
 _CONTAINERS = {"div", "section", "blockquote", "article", "body", "aside", "main"}
 _VERSE_CLASS = re.compile(r"verse|poem|stanza", re.I)
 _BREAK_CLASS = re.compile(r"scene|break|ornament|asterism|dinkus|spacer|separator", re.I)
+_MATTER_NAMES: list[tuple[MatterKind, re.Pattern[str]]] = [
+    ("cover", re.compile(r"cover")),
+    ("synopsis", re.compile(r"synopsis|blurb|summary|description")),
+    ("title_page", re.compile(r"title(page)?")),
+    ("credits", re.compile(r"credits?|copyright|colophon|imprint|legal")),
+    ("dedication", re.compile(r"dedication")),
+    ("about_author", re.compile(r"(about(the)?)?authors?|aboutauthor")),
+    ("notes", re.compile(r"(end|foot)?notes")),
+]
 _ASTERISM_CHARS = set("*⁂✻✽❖◆◇•·~#-—–_")
 
 
@@ -63,9 +75,20 @@ class Note:
 
 
 @dataclass(frozen=True)
+class Part:
+    """A front- or back-matter file. Later stages translate, rewrite or keep it by its kind."""
+
+    kind: MatterKind
+    title: str | None  # None for an untitled section
+    blocks: list[Block]
+
+
+@dataclass(frozen=True)
 class Book:
     chapters: list[Chapter]
     notes: list[Note]
+    front: list[Part]
+    back: list[Part]
 
 
 @dataclass
@@ -84,14 +107,33 @@ def build_book(
     read: Callable[[str], bytes],
     nav: dict[tuple[str, str | None], str],
 ) -> Book:
-    items = [i for member in spine for i in _items(member, read(member))]
+    kinds = {member: _matter_kind(member) for member in spine}
+    every = [i for member in spine for i in _items(member, read(member))]
+    position: dict[str, int] = {}
+    for item in every:
+        if item.kind is not None:
+            position[item.id] = len(position)
+    items = [i for i in every if kinds[i.member] is None]
+    front: list[Part] = []
+    back: list[Part] = []
+    body_seen = False
+    for member in spine:
+        kind = kinds[member]
+        if kind is None:
+            body_seen = True
+            continue
+        part_items = [i for i in every if i.member == member]
+        heading = next((i.text for i in part_items if i.kind == "heading"), None)
+        blocks = [
+            Block(i.id, i.kind, i.text, position[i.id]) for i in part_items if i.kind is not None
+        ]
+        (back if body_seen else front).append(Part(kind, heading, blocks))
     starts = _chapter_starts(items, nav)
     groups: list[tuple[str | None, list[_Item]]] = []
     for n, item in enumerate(items):
         if n == 0 or n in starts:
             groups.append((starts.get(n), []))
         groups[-1][1].append(item)
-    position = 0
     chapters: list[Chapter] = []
     for title, group in groups:
         scenes: list[Scene] = []
@@ -107,12 +149,17 @@ def build_book(
                 breaks.append(pending)
                 current = []
             pending = None
-            current.append(Block(item.id, item.kind, item.text, position))
-            position += 1
+            current.append(Block(item.id, item.kind, item.text, position[item.id]))
         if current:
             scenes.append(Scene(current))
         chapters.append(Chapter(title, scenes, breaks))
-    return Book(chapters, _notes(items))
+    return Book(chapters, _notes(every), front, back)
+
+
+def _matter_kind(member: str) -> MatterKind | None:
+    """Kind of front or back matter named by the file name, or None for a body file."""
+    stem = re.sub(r"[\W_\d]+", "", member.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower())
+    return next((kind for kind, name in _MATTER_NAMES if name.fullmatch(stem)), None)
 
 
 def _notes(items: list[_Item]) -> list[Note]:
