@@ -15,6 +15,7 @@ from book_translator.gates import ANALYSIS, skip_analysis_review, write_analysis
 from book_translator.llm import LLM, Adapter
 from book_translator.search import Search
 from book_translator.stages import draft as drafting
+from book_translator.stages import resolve as resolving
 from book_translator.stages.complete import completion_request, completion_schema, merged
 from book_translator.stages.consolidate import consolidation_request
 from book_translator.stages.enrich import (
@@ -59,6 +60,7 @@ def run(workspace: Path, adapter: Adapter, search: Search | None = None) -> None
         _enrichment(db, llm, search)
         _analysis_gate(db, workspace)
         _draft(db, workspace, llm)
+        _tk_resolution(db, workspace, llm)
     finally:
         db.close()
 
@@ -156,6 +158,18 @@ def _draft(db: sqlite3.Connection, workspace: Path, llm: LLM) -> None:
     bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
     drafting.draft(db, llm, open_epub(workspace / SOURCE_NAME), bible, STAGE_MODELS["draft"])
     _set_status(db, "draft", "done")
+
+
+def _tk_resolution(db: sqlite3.Connection, workspace: Path, llm: LLM) -> None:
+    if _status(db, "draft") != "done" or _status(db, "tk_resolution") == "done":
+        return
+    with db:
+        resolving.create_tables(db)
+    _set_status(db, "tk_resolution", "running")
+    bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
+    source = open_epub(workspace / SOURCE_NAME)
+    resolving.resolve(db, llm, source, bible, STAGE_MODELS["tk_resolution"])
+    _set_status(db, "tk_resolution", "done")
 
 
 def _analysis_gate(db: sqlite3.Connection, workspace: Path) -> None:
