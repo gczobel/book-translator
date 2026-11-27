@@ -38,3 +38,20 @@ def test_the_gate_writes_an_html_view_showing_every_card(ws: Path) -> None:
         assert card["context"] in page
         for option in card["options"]:
             assert option in page
+
+
+def test_approving_regenerates_the_view_with_the_readers_choice_escaped(ws: Path) -> None:
+    document = yaml.safe_load((ws / YAML).read_text())
+    card = next(c for c in document["cards"] if c["id"] == "dialogue")
+    card["choice"] = "inline-quotes"
+    card["context"] = "<b>bold</b> & more"
+    (ws / YAML).write_text(yaml.safe_dump(document, allow_unicode=True))
+
+    main(["approve", str(ws)])
+
+    raw = (ws / HTML).read_text()
+    assert "<b>bold</b>" not in raw
+    page = html.unescape(raw)
+    assert "<b>bold</b> & more" in page
+    assert "Your choice: inline-quotes" in page
+    assert "http://" not in raw and "https://" not in raw

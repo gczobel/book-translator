@@ -38,15 +38,18 @@ def write_html(review: Path) -> None:
 def _card(card: dict[str, object]) -> str:
     recommended = escape(str(card.get("recommended", "")))
     options = "".join(
-        f"<li{' class=\"rec\"' if str(o) == str(card.get('recommended')) else ''}>"
+        f"<li{' class="rec"' if str(o) == str(card.get('recommended')) else ''}>"
         f"{escape(str(o))}</li>"
         for o in card.get("options") or []
     )
+    choice = card.get("choice")
+    chosen = f"<p>Your choice: {escape(str(choice))}</p>" if choice else ""
     return (
         f"<article><h2>{escape(str(card.get('question', '')))}</h2>"
         f"<p>{escape(str(card.get('context') or ''))}</p>"
         f"<ul>{options}</ul>"
-        f"<p>Recommended: <span class=\"rec\">{recommended}</span></p>"
+        f'<p>Recommended: <span class="rec">{recommended}</span></p>'
         f"<p>Why: {escape(str(card.get('why') or ''))}</p>"
+        f"{chosen}"
         "</article>"
     )
