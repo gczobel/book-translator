@@ -209,3 +209,12 @@ def test_run_builds_the_production_adapter_when_the_key_is_set(
     main(["run", str(workspace)])
 
     assert isinstance(built[0], PydanticAIAdapter)
+
+
+def test_run_refuses_a_folder_that_is_not_a_workspace_without_creating_a_database(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(SystemExit, match="not a workspace"):
+        main(["run", str(tmp_path), "--cap", "5"], adapter=ReplayAdapter({}))
+
+    assert list(tmp_path.iterdir()) == []

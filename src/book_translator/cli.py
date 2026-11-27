@@ -107,6 +107,8 @@ def main(
     if args.command == "init":
         _init(args)
     elif args.command == "run":
+        if not (args.workspace / workspace.DB_NAME).is_file():
+            sys.exit(f"error: not a workspace: {args.workspace}")
         if adapter is None:
             adapter = _production_adapter()
             if search is None:
