@@ -144,6 +144,20 @@ class Epub:
                 shift += extra
         return out
 
+    def add(self, name: str, data: bytes) -> None:
+        """Append a new member to the archive."""
+        if name in self._by_name:
+            raise EpubError(f"member already exists: {name}")
+        member = _Member(zipfile.ZipInfo(name, self._members[0].info.date_time), data)
+        member.info.compress_type = zipfile.ZIP_DEFLATED
+        self._members.append(member)
+        self._by_name[name] = member
+
+    def remove(self, name: str) -> None:
+        """Drop a member from the archive."""
+        member = self._by_name.pop(name)
+        self._members.remove(member)
+
     def store(self, member: str, tree: etree._ElementTree) -> None:
         """Keep the member's original bytes when the edit changed nothing (an identity rebuild)."""
         member_data = self._by_name[member]

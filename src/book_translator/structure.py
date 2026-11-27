@@ -170,6 +170,11 @@ def build_book(
     return Book(chapters, _notes(every), front, back)
 
 
+def matter_kind(member: str, data: bytes) -> MatterKind | None:
+    """Kind of front or back matter a spine document is, or None for a body document."""
+    return _semantic_kind(data) or _matter_kind(member)
+
+
 def _semantic_kind(data: bytes) -> MatterKind | None:
     """Kind of matter declared by `epub:type` on the body or its top-level sections."""
     body = next((e for e in etree.fromstring(data).iter() if _name(e) == "body"), None)
