@@ -72,7 +72,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      # Enabling auto-merge needs pull-requests write; merging an already-green PR needs contents write.
+      # Enabling auto-merge needs pull-requests write; merging an already-green PR needs contents
+      # write, and verifying its required checks first needs checks read.
       - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         id: token
         with:
@@ -80,6 +81,7 @@ jobs:
           private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
           permission-pull-requests: write
           permission-contents: write
+          permission-checks: read
       - run: python3 -m arming arm
         env:
           PYTHONPATH: .github/scripts

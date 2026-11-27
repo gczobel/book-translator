@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
-from arming.core import LabelEvent, Pull
+from arming.core import CheckRun, LabelEvent, Pull
 from ghapi.client import ApiError
 
 _SHA = re.compile(r"[0-9a-f]{40}")
+_CHECK_PAGES = 40  # 4000 check runs at 100 per page; far more than a PR here has
 
 
 class Api(Protocol):
@@ -98,3 +99,37 @@ def label_events(api: Api, repo: str, number: int) -> list[LabelEvent]:
             )
         )
     return events
+
+
+def check_runs(api: Api, repo: str, sha: str) -> list[CheckRun]:
+    """Every check run on the commit. The endpoint wraps its list, so it is paged here."""
+    runs: list[CheckRun] = []
+    total: int | None = None
+    for page in range(1, _CHECK_PAGES + 1):
+        body = _obj(
+            api.get_json(f"/repos/{repo}/commits/{sha}/check-runs?per_page=100&page={page}"),
+            "check runs",
+        )
+        total = _int(body.get("total_count"), "total_count")
+        items = body.get("check_runs")
+        if not isinstance(items, list):
+            raise ApiError("check_runs is not a list")
+        for raw in items:
+            c = _obj(raw, "check run")
+            conclusion = c.get("conclusion")
+            if conclusion is not None and not isinstance(conclusion, str):
+                raise ApiError("check conclusion is not a string")
+            runs.append(
+                CheckRun(
+                    id=_int(c.get("id"), "check id"),
+                    name=_str(c.get("name"), "check name"),
+                    status=_str(c.get("status"), "check status"),
+                    conclusion=conclusion,
+                    app_id=_int(_obj(c.get("app"), "check app").get("id"), "check app id"),
+                )
+            )
+        if not items or len(runs) >= total:
+            break
+    if total is None or len(runs) != total:
+        raise ApiError(f"check list truncated: got {len(runs)} of {total}")
+    return runs

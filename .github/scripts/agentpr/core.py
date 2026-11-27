@@ -15,11 +15,10 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ghapi.identities import AGENT_BOT_ID
+from ghapi.identities import ACTIONS_APP_ID, AGENT_BOT_ID
 from ghapi.labels import is_on_hold
 from guard.rules import is_guarded_path
 
-ACTIONS_APP_ID = 15368  # GitHub Actions: the only source the required checks are trusted from
 BRANCH_PREFIX = "agent/"
 RELEASE_TAG_PREFIX = "v"  # the ruleset pattern is `v*`
 _BRANCH = re.compile(r"agent/[A-Za-z0-9][A-Za-z0-9._/-]*")

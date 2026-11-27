@@ -7,13 +7,12 @@ import pytest
 
 from agentpr import core
 from agentpr.core import (
-    ACTIONS_APP_ID,
     REQUIRED_CHECKS,
     CheckRun,
     OwnerReview,
     PullFacts,
 )
-from ghapi.identities import AGENT_BOT_ID
+from ghapi.identities import ACTIONS_APP_ID, AGENT_BOT_ID
 
 REPO = "o/r"
 SHA = "1" * 40

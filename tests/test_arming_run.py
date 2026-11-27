@@ -5,9 +5,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from arming.run import arm, select
+from arming.core import REQUIRED_CHECKS
+from arming.run import CLEAN_STATUS, arm, select
 from ghapi.client import ApiError
-from ghapi.identities import DEPENDABOT_ID, OWNER_ID
+from ghapi.identities import ACTIONS_APP_ID, DEPENDABOT_ID, OWNER_ID
 
 REPO = "o/r"
 SHA = "b" * 40
@@ -28,6 +29,21 @@ def raw_pull(number: int = 7, **over: Any) -> dict[str, Any]:
     return item
 
 
+def green_checks(**over: Any) -> dict[str, Any]:
+    """A check-runs reply with every required check successful, except as `over` changes it."""
+    runs = [
+        {
+            "id": i,
+            "name": n,
+            "status": "completed",
+            "conclusion": "success",
+            "app": {"id": ACTIONS_APP_ID},
+        }
+        for i, n in enumerate(REQUIRED_CHECKS, start=1)
+    ]
+    return {"total_count": len(runs), "check_runs": runs, **over}
+
+
 class FakeApi:
     def __init__(self, pulls: list[dict[str, Any]] | None = None) -> None:
         self.pulls = pulls if pulls is not None else [raw_pull()]
@@ -36,10 +52,13 @@ class FakeApi:
         self.posts: list[tuple[str, dict[str, Any]]] = []
         self.graphql_replies: list[Any] = []
         self.fail_pages = False
+        self.check_runs: Any = green_checks()
 
     def get_json(self, path: str) -> Any:
         if path == f"/repos/{REPO}":
             return {"default_branch": "main"}
+        if "/check-runs" in path:
+            return self.check_runs
         number = int(path.rsplit("/", 1)[1])
         return next(p for p in self.pulls if p["number"] == number)
 
@@ -173,12 +192,79 @@ def test_arm_enables_squash_auto_merge_with_a_blank_body_pinned_to_the_head(
     assert payload["variables"] == {"id": "PR_7", "oid": SHA}
 
 
-def test_arm_merges_directly_when_the_pr_is_already_clean(tmp_path: Path) -> None:
-    api = FakeApi()
-    api.graphql_replies = [{"errors": [{"message": "Pull request is in clean status"}]}]
+def clean(api: FakeApi) -> FakeApi:
+    api.graphql_replies = [{"errors": [{"message": f"Pull request is in {CLEAN_STATUS}"}]}]
+    return api
+
+
+def test_arm_merges_directly_when_clean_and_every_required_check_succeeded(tmp_path: Path) -> None:
+    api = clean(FakeApi())
     assert arm(env(tmp_path, **targets({"number": 7, "head_sha": SHA})), api) == 0
     assert "mergePullRequest" in api.posts[1][1]["query"]
     assert 'commitBody: ""' in api.posts[1][1]["query"]
+
+
+def _with(name: str, **changes: Any) -> dict[str, Any]:
+    reply = green_checks()
+    for run in reply["check_runs"]:
+        if run["name"] == name:
+            run.update(changes)
+    return reply
+
+
+def _without(name: str) -> dict[str, Any]:
+    reply = green_checks()
+    reply["check_runs"] = [r for r in reply["check_runs"] if r["name"] != name]
+    reply["total_count"] = len(reply["check_runs"])
+    return reply
+
+
+def test_arm_does_not_merge_a_clean_pr_unless_every_required_check_is_verified(
+    tmp_path: Path,
+) -> None:
+    cases: list[Any] = []
+    for name in REQUIRED_CHECKS:
+        cases += [
+            _without(name),
+            _with(name, conclusion="failure"),
+            _with(name, conclusion="skipped"),
+            _with(name, conclusion="neutral"),
+            _with(name, conclusion=None, status="in_progress"),
+            _with(name, app={"id": ACTIONS_APP_ID + 1}),  # not from GitHub Actions
+        ]
+    for reply in cases:
+        api = clean(FakeApi())
+        api.check_runs = reply
+        # Nothing is merged, and it is not a failure: the next sweep retries.
+        assert arm(env(tmp_path, **targets({"number": 7, "head_sha": SHA})), api) == 0
+        assert len(api.posts) == 1, reply
+
+
+def test_a_newer_run_of_a_check_supersedes_an_older_failure(tmp_path: Path) -> None:
+    reply = green_checks()
+    reply["check_runs"].append(
+        {
+            "id": 999,
+            "name": "lint",
+            "status": "completed",
+            "conclusion": "failure",
+            "app": {"id": ACTIONS_APP_ID},
+        }
+    )
+    reply["total_count"] += 1
+    api = clean(FakeApi())
+    api.check_runs = reply
+    arm(env(tmp_path, **targets({"number": 7, "head_sha": SHA})), api)
+    assert len(api.posts) == 1  # the newest lint run failed
+
+
+def test_unreadable_check_runs_fail_closed_without_merging(tmp_path: Path) -> None:
+    unreadable: list[Any] = [[], {"total_count": "x"}, {"total_count": 5, "check_runs": []}]
+    for bad in unreadable:
+        api = clean(FakeApi())
+        api.check_runs = bad
+        assert arm(env(tmp_path, **targets({"number": 7, "head_sha": SHA})), api) == 1
+        assert len(api.posts) == 1
 
 
 def test_arm_fails_on_other_graphql_errors(tmp_path: Path) -> None:

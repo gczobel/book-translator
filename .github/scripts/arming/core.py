@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from ghapi.identities import DEPENDABOT_ID, MAINT_BOT_ID, OWNER_ID
+from ghapi.identities import ACTIONS_APP_ID, DEPENDABOT_ID, MAINT_BOT_ID, OWNER_ID
 from ghapi.labels import is_on_hold
 
 # author ID -> head-branch prefix that author may use
@@ -24,6 +24,20 @@ ARMABLE_AUTHORS: dict[int, str] = {
     DEPENDABOT_ID: "dependabot/",
     MAINT_BOT_ID: "release-please--",
 }
+
+# The checks the `main` ruleset requires (a test keeps this equal to .github/rulesets/main.json).
+# Arming's direct-merge fallback verifies every one itself, because it bypasses the merge queue's
+# own waiting.
+REQUIRED_CHECKS = (
+    "lint",
+    "typecheck",
+    "test",
+    "e2e",
+    "epubcheck",
+    "workflow-security",
+    "guard",
+    "hold",
+)
 
 URGENT = "urgent"
 SECURITY = "security"
@@ -45,6 +59,15 @@ class Pull:
 
 
 @dataclass(frozen=True)
+class CheckRun:
+    id: int
+    name: str
+    status: str
+    conclusion: str | None
+    app_id: int
+
+
+@dataclass(frozen=True)
 class LabelEvent:
     label: str
     action: str  # "labeled" or "unlabeled"
@@ -57,6 +80,22 @@ class ArmDecision:
     reason: str
     security: bool = False
     urgent: bool = False
+
+
+def unverified_checks(runs: Iterable[CheckRun]) -> list[str]:
+    """Required checks that are not verified successful. Empty means every one succeeded.
+
+    Only GitHub Actions' own runs count, and the newest run of a name decides (a re-run
+    supersedes). A missing, unfinished, skipped, neutral or failed check is unverified.
+    """
+    runs = list(runs)
+    unverified = []
+    for name in REQUIRED_CHECKS:
+        ours = [r for r in runs if r.name == name and r.app_id == ACTIONS_APP_ID]
+        latest = max(ours, key=lambda r: r.id) if ours else None
+        if latest is None or latest.status != "completed" or latest.conclusion != "success":
+            unverified.append(name)
+    return unverified
 
 
 def _applied_by(events: Iterable[LabelEvent], label: str, allowed: set[int]) -> bool:

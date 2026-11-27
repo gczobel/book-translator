@@ -19,7 +19,7 @@ from typing import Any
 
 from arming import collect
 from arming.collect import Api
-from arming.core import Pull, evaluate
+from arming.core import Pull, evaluate, unverified_checks
 from ghapi.client import ApiError, HttpApi
 from ghapi.repo import split_repo
 
@@ -35,7 +35,11 @@ mutation($id: ID!, $oid: GitObjectID!) {
   }
 }
 """
-# An already-green PR can't have auto-merge enabled ("clean status"); merge it directly instead.
+# GitHub refuses to enable auto-merge on a PR that is already mergeable with this message.
+CLEAN_STATUS = "clean status"
+# Merging directly skips GitHub's own wait, so it happens only after every required check is
+# verified successful from GitHub Actions (see `arm`); otherwise nothing is done and the next
+# sweep retries.
 _MERGE = """
 mutation($id: ID!, $oid: GitObjectID!) {
   mergePullRequest(input: {pullRequestId: $id, mergeMethod: SQUASH, commitBody: "",
@@ -171,7 +175,13 @@ def arm(env: Mapping[str, str], api: Api | None = None) -> int:
                 raise ApiError("the head moved since the age gate ran")
             variables = {"id": pull.node_id, "oid": sha}
             errors = _graphql(api, _ENABLE, variables)
-            if errors and all("clean status" in e for e in errors):
+            if errors and all(CLEAN_STATUS in e for e in errors):
+                # `targets` only holds PRs whose age gate passed. Merge now only if every
+                # required check is verified; if any is not, do nothing and let the sweep retry.
+                unverified = unverified_checks(collect.check_runs(api, repo, sha))
+                if unverified:
+                    print(f"arming: #{number} not merged yet: unverified checks {unverified}")
+                    continue
                 errors = _graphql(api, _MERGE, variables)
             if errors:
                 raise ApiError("GitHub refused: " + "; ".join(errors))
