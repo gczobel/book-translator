@@ -21,11 +21,19 @@ _VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+!-]*")
 _ISO_UTC = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z")
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Only the first URL is checked against _BASE, so a redirect would escape that check."""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        raise LockError("refusing to follow a redirect")
+
+
 def _fetch(url: str) -> bytes:
     if not url.startswith(_BASE):
         raise LockError("refusing to contact a non-PyPI URL")
     request = urllib.request.Request(url, headers={"User-Agent": "book-translator-automation"})
-    with urllib.request.urlopen(request, timeout=30) as response:
+    opener = urllib.request.build_opener(_NoRedirect)
+    with opener.open(request, timeout=30) as response:
         body: bytes = response.read()
     return body
 

@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
+import lockage.pypi
 from lockage.core import LockError
-from lockage.pypi import PyPiClient
+from lockage.pypi import PyPiClient, _fetch
 
 FIXTURES = Path(__file__).parent / "fixtures" / "pypi"
 
@@ -89,3 +90,30 @@ def test_a_malformed_entry_never_reaches_the_url() -> None:
     with pytest.raises(LockError):
         _client(json.dumps({}).encode(), urls).upload_time(("../etc", "1"))
     assert urls == []
+
+
+def test_a_redirect_is_refused_not_followed(monkeypatch: pytest.MonkeyPatch) -> None:
+    import http.server
+    import threading
+
+    hits: list[str] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            hits.append(self.path)
+            self.send_response(302)
+            self.send_header("Location", "/elsewhere")
+            self.end_headers()
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr("lockage.pypi._BASE", f"http://127.0.0.1:{server.server_port}/pypi/")
+    try:
+        with pytest.raises(LockError, match="redirect"):
+            _fetch(f"{lockage.pypi._BASE}requests/2.0.0/json")
+    finally:
+        server.shutdown()
+    assert hits == ["/pypi/requests/2.0.0/json"]
