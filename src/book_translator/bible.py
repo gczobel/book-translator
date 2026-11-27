@@ -72,11 +72,40 @@ class GlossaryEntry(BaseModel):
     origin: Literal["extracted", "researched", "established"]
 
 
+class Motif(BaseModel):
+    name: str
+    locked_rendering: str
+    description: str = ""
+
+
+class ChapterSummary(BaseModel):
+    chapter: int  # 1-based
+    summary: str
+
+
+class TimelineEvent(BaseModel):
+    when: str
+    event: str
+    chapter: int | None = None
+
+
+class Crux(BaseModel):
+    """A passage predicted to need a decision: where the translation is likely to get stuck."""
+
+    type: Literal["pun", "lyrics", "quotation", "dialect"]
+    location: str
+    note: str = ""
+
+
 class Part2(BaseModel):
     """The second half of the bible, written once part 1 is known."""
 
     address_grid: list[AddressRule] = []
     glossary: list[GlossaryEntry] = []
+    motifs: list[Motif] = []
+    summaries: list[ChapterSummary] = []
+    timeline: list[TimelineEvent] = []
+    cruxes: list[Crux] = []
 
     def check_against_cast(self, names: set[str]) -> None:
         unknown = sorted(

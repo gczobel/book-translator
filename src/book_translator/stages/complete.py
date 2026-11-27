@@ -50,9 +50,7 @@ def merged(part1: Bible, part2: Part2, db: sqlite3.Connection) -> Bible:
     research stage join the glossary; one the model also listed keeps the established rendering
     and origin, and the model's banned variants and context rule."""
     established = {
-        str(term).casefold(): GlossaryEntry(
-            term=term, rendering=rendering, origin="established"
-        )
+        str(term).casefold(): GlossaryEntry(term=term, rendering=rendering, origin="established")
         for term, rendering in db.execute(
             "select term, rendering from glossary where origin = 'established'"
         )

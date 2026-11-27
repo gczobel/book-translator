@@ -32,6 +32,8 @@ class _WithBible(ReplayAdapter):
     """Replay for extraction, plus a minimal bible for the consolidation that follows."""
 
     def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+        if request.stage == "completion":
+            return RawAnswer("{}")
         if request.stage == "consolidation":
             return RawAnswer(MINIMAL_BIBLE)
         return super().complete(request, key, attempt)

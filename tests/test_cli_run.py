@@ -42,6 +42,8 @@ class CountingAdapter:
         self.calls = 0
 
     def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+        if request.stage == "completion":  # not counted either
+            return RawAnswer("{}")
         if request.stage == "consolidation":  # not counted: these tests are about extraction
             return RawAnswer(MINIMAL_BIBLE)
         if self._fail_after is not None and self.calls >= self._fail_after:
@@ -87,6 +89,7 @@ def test_run_extracts_names_places_and_phrases_per_chapter(workspace: Path) -> N
     assert rows(workspace, "select stage, status from stages") == [
         ("extraction", "done"),
         ("consolidation", "done"),
+        ("completion", "done"),
     ]
 
 
@@ -105,6 +108,7 @@ def test_an_interrupted_run_resumes_without_repeating_calls(workspace: Path) -> 
     assert rows(workspace, "select stage, status from stages") == [
         ("extraction", "done"),
         ("consolidation", "done"),
+        ("completion", "done"),
     ]
     assert rows(workspace, "select count(*) from extractions") == [(2,)]
 
@@ -153,6 +157,7 @@ def test_raising_the_cap_resumes_without_repeating_or_losing_work(workspace: Pat
     assert rows(workspace, "select stage, status from stages") == [
         ("extraction", "done"),
         ("consolidation", "done"),
+        ("completion", "done"),
     ]
     assert rows(workspace, "select round(sum(cost_usd), 4) from spend") == [(0.021,)]
 

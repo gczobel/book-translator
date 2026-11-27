@@ -102,8 +102,12 @@ def _completion(db: sqlite3.Connection, llm: LLM) -> None:
         return
     _set_status(db, "completion", "running")
     part1 = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
-    result = llm.call(completion_request(STAGE_MODELS["consolidation"], db, part1), completion_schema(part1))
+    result = llm.call(
+        completion_request(STAGE_MODELS["consolidation"], db, part1), completion_schema(part1)
+    )
     with db:
         db.execute("delete from bible")
-        db.execute("insert into bible values (?)", (merged(part1, result.output, db).model_dump_json(),))
+        db.execute(
+            "insert into bible values (?)", (merged(part1, result.output, db).model_dump_json(),)
+        )
     _set_status(db, "completion", "done")
