@@ -48,6 +48,12 @@ REASONS: dict[str, tuple[str, str]] = {
         "The OSV scan of uv.lock failed or its output could not be parsed, so nothing "
         "vulnerable can be ruled out.",
     ),
+    "release-tag-unverified": (
+        "A new release tag could not be verified",
+        "A v* tag appeared that was not verified as release-please's merge commit on main, "
+        "or the check itself failed. Do not install it until you have looked: the tag may "
+        "have been created by someone else.",
+    ),
 }
 
 _KEY = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
