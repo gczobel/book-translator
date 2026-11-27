@@ -73,6 +73,18 @@ def candidates(api: Api, repo: str, sha: str) -> list[int]:
     return numbers
 
 
+def tag_names(api: Api, repo: str) -> list[str]:
+    """Every tag name starting with `v` (the release pattern), or AgentPrError if unreadable."""
+    names = []
+    for raw in api.get_pages(f"/repos/{repo}/git/matching-refs/tags/v"):
+        ref = _str(_obj(raw, "tag ref").get("ref"), "tag ref")
+        prefix = "refs/tags/"
+        if not ref.startswith(prefix):
+            raise AgentPrError("tag ref is not under refs/tags/")
+        names.append(ref[len(prefix) :])
+    return names
+
+
 def pull_facts(api: Api, repo: str, number: int, owner_id: int = OWNER_ID) -> tuple[PullFacts, int]:
     """The PR's identity facts and its changed-file count. Reviews are read here too."""
     raw = _obj(api.get_json(f"/repos/{repo}/pulls/{number}"), "pull request")

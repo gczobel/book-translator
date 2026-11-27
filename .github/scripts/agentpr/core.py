@@ -21,6 +21,7 @@ from guard.rules import is_guarded_path
 
 ACTIONS_APP_ID = 15368  # GitHub Actions: the only source the required checks are trusted from
 BRANCH_PREFIX = "agent/"
+RELEASE_TAG_PREFIX = "v"  # the ruleset pattern is `v*`
 _BRANCH = re.compile(r"agent/[A-Za-z0-9][A-Za-z0-9._/-]*")
 _BAD_PARTS = {"", ".", ".."}
 
@@ -148,9 +149,19 @@ def decide(
     pr: PullFacts,
     paths: Sequence[str],
     checks: Sequence[CheckRun],
+    tags: Sequence[str] | None,
 ) -> MergeDecision:
-    """May this PR merge now? `paths` holds every changed path, and every rename source."""
+    """May this PR merge now? `paths` holds every changed path, and every rename source.
+
+    `tags` is every tag name of the repository, or None if they could not be read.
+    """
     reasons: list[str] = []
+    # ADR 0005: phase 2 (owner approval on every agent PR) starts with the first `v*` tag, and
+    # that is not built here. So a release tag, or tags we can't read, stop the auto-merge.
+    if tags is None:
+        reasons.append("the tags could not be read: cannot tell which phase this is")
+    elif any(tag.startswith(RELEASE_TAG_PREFIX) for tag in tags):
+        reasons.append("a release tag exists: phase 2 needs the owner's approval on every PR")
     if not is_agent_pr(repo, pr):
         reasons.append("not written by the Agent App from this repository")
     if not _branch_ok(pr.head_ref):

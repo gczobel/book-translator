@@ -47,6 +47,7 @@ def run(env: Mapping[str, str], api: Api | None = None) -> int:
                 raise AgentPrError("GH_TOKEN is missing")
             api = HttpApi(token)
 
+        tags = collect.tag_names(api, repo)
         ready: list[tuple[int, str]] = []
         for number in _numbers(api, repo, env):
             facts, expected = collect.pull_facts(api, repo, number)
@@ -58,6 +59,7 @@ def run(env: Mapping[str, str], api: Api | None = None) -> int:
                 facts,
                 collect.changed_paths(api, repo, number, expected),
                 collect.check_runs(api, repo, facts.head_sha),
+                tags,
             )
             if decision.merge:
                 ready.append((number, facts.head_sha))

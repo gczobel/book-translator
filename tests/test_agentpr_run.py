@@ -66,6 +66,7 @@ def _check_pages(
 def _routes(**over: Any) -> dict[str, Any]:
     routes: dict[str, Any] = {
         f"/repos/{REPO}/commits/{SHA}/pulls": [_raw_pr()],
+        f"/repos/{REPO}/git/matching-refs/tags/v": [],
         f"/repos/{REPO}/pulls/7": _raw_pr(),
         f"/repos/{REPO}/pulls/7/reviews": [],
         f"/repos/{REPO}/pulls/7/files": [{"filename": "src/a.py"}],
@@ -274,3 +275,17 @@ def test_an_api_error_fails_closed(tmp_path: Path) -> None:
 def test_collect_error_is_importable() -> None:
     with pytest.raises(AgentPrError):
         collect.require_repo("..", "x")
+
+
+def test_a_release_tag_stops_the_merge(tmp_path: Path) -> None:
+    tags = [{"ref": "refs/tags/v0.1.0"}]
+    code, out = _run(
+        tmp_path, FakeApi(_routes(**{f"/repos/{REPO}/git/matching-refs/tags/v": tags}))
+    )
+    assert (code, out.strip()) == (0, "merge=false")
+
+
+@pytest.mark.parametrize("bad", [[{"ref": "refs/heads/v1"}], [{"ref": 5}], ["x"]])
+def test_unreadable_tags_fail_the_job_closed(tmp_path: Path, bad: list[Any]) -> None:
+    code, out = _run(tmp_path, FakeApi(_routes(**{f"/repos/{REPO}/git/matching-refs/tags/v": bad})))
+    assert code == 2 and "merge=true" not in out
