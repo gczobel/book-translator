@@ -16,8 +16,12 @@ from book_translator.config import (
     VARIETIES,
 )
 from book_translator.epub import open_epub
+from book_translator.epubcheck import EpubcheckNotFoundError
 from book_translator.estimate import estimate
+from book_translator.export import REPORT_NAME, ExportError, ValidationFailedError, export
+from book_translator.fonts import FontCoverageError
 from book_translator.gates import GateError, approve_waiting_gate
+from book_translator.inline import InlineCodeError
 from book_translator.llm import Adapter
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
 from book_translator.qa import print_report
@@ -67,6 +71,8 @@ def _parser() -> argparse.ArgumentParser:
     status_cmd.add_argument("workspace", type=Path)
     approve_cmd = sub.add_parser("approve", help="approve the waiting review gate")
     approve_cmd.add_argument("workspace", type=Path)
+    export_cmd = sub.add_parser("export", help="build the translated EPUB and validate it")
+    export_cmd.add_argument("workspace", type=Path)
     return parser
 
 
@@ -94,12 +100,27 @@ def main(
         print_report(args.workspace)
     elif args.command == "approve":
         _approve(args.workspace)
+    elif args.command == "export":
+        _export(args.workspace)
     elif args.command == "status":
         if not (args.workspace / workspace.DB_NAME).is_file():
             sys.exit(f"error: not a workspace: {args.workspace}")
         print(render(read_status(args.workspace), args.workspace))
     else:
         parser.print_help()
+
+
+def _export(path: Path) -> None:
+    if not (path / workspace.DB_NAME).is_file():
+        sys.exit(f"error: not a workspace: {path}")
+    try:
+        out = export(path)
+    except ValidationFailedError as exc:
+        print(exc.report, end="")
+        sys.exit("error: epubcheck failed; the report is in " + str(path / REPORT_NAME))
+    except (ExportError, EpubcheckNotFoundError, FontCoverageError, InlineCodeError) as exc:
+        sys.exit(f"error: {exc}")
+    print(f"Exported: {out}\nepubcheck report: {path / REPORT_NAME}")
 
 
 def _production_adapter() -> Adapter:
