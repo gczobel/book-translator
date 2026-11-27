@@ -64,10 +64,19 @@ class AddressRule(BaseModel):
         return self
 
 
+class GlossaryEntry(BaseModel):
+    term: str
+    rendering: str
+    banned_variants: list[str] = []
+    context_rule: str = ""
+    origin: Literal["extracted", "researched", "established"]
+
+
 class Part2(BaseModel):
     """The second half of the bible, written once part 1 is known."""
 
     address_grid: list[AddressRule] = []
+    glossary: list[GlossaryEntry] = []
 
     def check_against_cast(self, names: set[str]) -> None:
         unknown = sorted(

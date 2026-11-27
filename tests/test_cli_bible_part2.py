@@ -80,6 +80,56 @@ def test_the_address_grid_holds_directed_pairs_with_chapter_ranges(ws: Path) -> 
     assert (grid[2]["from_chapter"], grid[2]["to_chapter"]) == (3, None)
 
 
+def test_glossary_entries_have_rendering_banned_variants_context_rule_and_origin(
+    ws: Path,
+) -> None:
+    entries = [
+        {
+            "term": "Canterville Chase",
+            "rendering": "Canterville Chase",
+            "banned_variants": ["La Caza de Canterville"],
+            "context_rule": "keep in English unless the narrator is being ironic",
+            "origin": "extracted",
+        },
+        {"term": "the Chase", "rendering": "la mansión", "origin": "researched"},
+    ]
+
+    main(["run", str(ws)], adapter=Part2Adapter([json.dumps(part2(glossary=entries))]))
+
+    glossary = stored(ws)["glossary"]
+    assert glossary[0] == {**entries[0]}
+    assert glossary[1] == {**entries[1], "banned_variants": [], "context_rule": ""}
+
+
+def test_an_unknown_glossary_origin_is_retried(ws: Path) -> None:
+    bad = part2(glossary=[{"term": "a", "rendering": "b", "origin": "guessed"}])
+    adapter = Part2Adapter([json.dumps(bad), json.dumps(part2())])
+
+    main(["run", str(ws)], adapter=adapter)
+
+    assert len(adapter.completion_requests) == 2
+
+
+def test_established_terms_from_research_join_the_glossary_without_duplicates(ws: Path) -> None:
+    found = Finding("Canterville Ghost", "A tale.", "https://example.org/t", "El fantasma")
+    model_entry = {
+        "term": "canterville ghost",
+        "rendering": "El espectro",
+        "banned_variants": ["El espectro de Canterville"],
+        "origin": "extracted",
+    }
+    other = {"term": "Otis", "rendering": "Otis", "origin": "extracted"}
+    adapter = Part2Adapter([json.dumps(part2(glossary=[model_entry, other]))])
+
+    main(["run", str(ws)], adapter=adapter, search=FixtureSearch([found]))
+
+    glossary = stored(ws)["glossary"]
+    assert [g["term"] for g in glossary] == ["Canterville Ghost", "Otis"]
+    assert glossary[0]["rendering"] == "El fantasma"
+    assert glossary[0]["origin"] == "established"
+    assert glossary[0]["banned_variants"] == ["El espectro de Canterville"]
+
+
 def test_an_address_rule_for_someone_outside_the_cast_is_retried(ws: Path) -> None:
     stray = part2(address_grid=[{"speaker": "Nobody", "addressee": "Hiram", "form": "tú"}])
     adapter = Part2Adapter([json.dumps(stray), json.dumps(part2())])

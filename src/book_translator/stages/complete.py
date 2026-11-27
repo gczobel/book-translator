@@ -6,7 +6,7 @@ from typing import Self
 
 from pydantic import model_validator
 
-from book_translator.bible import Bible, Part2
+from book_translator.bible import Bible, GlossaryEntry, Part2
 from book_translator.llm import LLMRequest
 
 PROMPT_VERSION = "completion-v1"
@@ -45,6 +45,27 @@ def completion_schema(part1: Bible) -> type[Part2]:
     return CastChecked
 
 
-def merged(part1: Bible, part2: Part2) -> Bible:
-    """Part 1 plus the new fields, validated as a whole."""
-    return Bible.model_validate({**part1.model_dump(), **part2.model_dump()})
+def merged(part1: Bible, part2: Part2, db: sqlite3.Connection) -> Bible:
+    """Part 1 plus the new fields, validated as a whole. Established terms stored by the
+    research stage join the glossary; one the model also listed keeps the established rendering
+    and origin, and the model's banned variants and context rule."""
+    established = {
+        str(term).casefold(): GlossaryEntry(
+            term=term, rendering=rendering, origin="established"
+        )
+        for term, rendering in db.execute(
+            "select term, rendering from glossary where origin = 'established'"
+        )
+    }
+    glossary: list[GlossaryEntry] = []
+    for entry in part2.glossary:
+        known = established.pop(entry.term.casefold(), None)
+        if known is not None:
+            entry = entry.model_copy(
+                update={"term": known.term, "rendering": known.rendering, "origin": "established"}
+            )
+        glossary.append(entry)
+    glossary.extend(established.values())
+    return Bible.model_validate(
+        {**part1.model_dump(), **part2.model_dump(), "glossary": [g.model_dump() for g in glossary]}
+    )
