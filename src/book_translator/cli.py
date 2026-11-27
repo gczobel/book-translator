@@ -15,6 +15,7 @@ from book_translator.llm import Adapter
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
 from book_translator.run import run
 from book_translator.search import Search, WikiSearch
+from book_translator.status import read_status, render
 from book_translator.structure import Book
 
 
@@ -35,6 +36,8 @@ def _parser() -> argparse.ArgumentParser:
     run_cmd = sub.add_parser("run", help="advance the book through its stages (resumable)")
     run_cmd.add_argument("workspace", type=Path)
     run_cmd.add_argument("--cap", type=float, help="set a new spending cap in USD before running")
+    status_cmd = sub.add_parser("status", help="show the stage, progress and spend of a workspace")
+    status_cmd.add_argument("workspace", type=Path)
     return parser
 
 
@@ -59,6 +62,10 @@ def main(
             run(args.workspace, adapter, search)
         except CapReachedError as exc:
             sys.exit(f"stopped: {exc}")
+    elif args.command == "status":
+        if not (args.workspace / workspace.DB_NAME).is_file():
+            sys.exit(f"error: not a workspace: {args.workspace}")
+        print(render(read_status(args.workspace), args.workspace))
     else:
         parser.print_help()
 
