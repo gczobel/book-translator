@@ -18,7 +18,7 @@ from collections.abc import Callable
 from book_translator.bible import Bible
 from book_translator.epub import Epub
 from book_translator.inline import InlineCodeError
-from book_translator.qa import Finding, QAContext, check
+from book_translator.qa import Finding, QAContext, check, plain
 
 STAGE = "typography"
 OPEN_CODE, CLOSE_CODE, STANDALONE_CODE = "", "", ""
@@ -152,6 +152,51 @@ def raya(text: str) -> str:
     return (RAYA if dialogue else "") + out
 
 
+_MARK = re.compile(r"[?!]")
+_SEGMENT_START = re.compile(
+    r"(?:^|(?<=[\u00ab\u201c\u2018\u2014])|(?<=[.!?\u2026]\s)|(?<=[.!?\u2026][\u00bb\u201d\u2019)]\s))"
+)
+_UNSURE_FIRST_WORDS = frozenset(
+    "pero y o u e ni que pues entonces así bueno aunque mas sino si".split()
+)
+_OPENER = {"?": "\u00bf", "!": "\u00a1"}
+
+
+def inverted_marks(text: str) -> str:
+    """P2 (3.4, 5.4): a sentence that is wholly a question or exclamation, with no opener, gets its
+    ¿ or ¡ at its start. Anything else (a partial question after a conjunction, commas inside, a
+    mixed ?! ending) has more than one reading and is left for the `inverted_marks` check."""
+    for match in reversed(list(_MARK.finditer(text))):
+        end = match.start()
+        start = max(m.end() for m in _SEGMENT_START.finditer(text, 0, end))
+        segment = text[start:end]
+        first = segment.split(" ", 1)[0].lower() if segment else ""
+        if (
+            not segment
+            or not segment[0].isalpha()
+            or first in _UNSURE_FIRST_WORDS
+            or re.search(r"[\u00bf\u00a1?!,;:]", segment)
+            or text[end + 1 : end + 2] in ("?", "!")
+        ):
+            continue
+        text = text[:start] + _OPENER[match.group()] + text[start:]
+    return text
+
+
+@check("inverted_marks")
+def inverted_mark_pairs(context: QAContext) -> list[Finding]:
+    """Every ? and ! needs its ¿ or ¡ (P2): the openers and closers of a block must match."""
+    found = []
+    for block, texts in context.targets.items():
+        text = "".join(plain(t) for t in texts)
+        for opener, closer in (("\u00bf", "?"), ("\u00a1", "!")):
+            if text.count(opener) != text.count(closer):
+                found.append(
+                    Finding("inverted_marks", block, f"its {opener} and {closer} do not match (P2)")
+                )
+    return found
+
+
 @check("raya")
 def raya_layout(context: QAContext) -> list[Finding]:
     """What the normaliser could not settle: a dash that is not a raya, rayas that do not pair up
@@ -169,7 +214,11 @@ def raya_layout(context: QAContext) -> list[Finding]:
     return found
 
 
-RULES: list[tuple[str, Callable[[str], str]]] = [("quotes", quotes), ("raya", raya)]
+RULES: list[tuple[str, Callable[[str], str]]] = [
+    ("quotes", quotes),
+    ("raya", raya),
+    ("inverted_marks", inverted_marks),
+]
 
 
 def normalise(text: str) -> list[tuple[str, str, str]]:

@@ -78,3 +78,21 @@ def test_raya_is_set_as_a_dialogue_dash_with_glued_incisos_and_no_closing_raya_a
     assert (BLOCK, "raya") in findings(ws)  # only the last case cannot be settled
     assert normalised(ws, cases[0][1], adapter, capsys) == cases[0][1]
     assert (BLOCK, "raya") not in findings(ws)
+
+
+def test_a_question_or_exclamation_lacking_its_opener_gets_one_only_when_unambiguous(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+    cases = [
+        ("Qué fue eso? Nada! Se fue ya.", "¿Qué fue eso? ¡Nada! Se fue ya."),
+        ("—Qué fue eso? —preguntó Beregond.", "—¿Qué fue eso? —preguntó Beregond."),
+        ("Dijo «hola!», y se fue sin más.", "Dijo «¡hola!», y se fue sin más."),
+        ("Pero dónde vas? Eso no está bien.", "Pero dónde vas? Eso no está bien."),  # partial
+    ]
+    for text, expected in cases:
+        assert normalised(ws, text, adapter, capsys) == expected
+        assert normalised(ws, expected, adapter, capsys) == expected
+    assert (BLOCK, "inverted_marks") in findings(ws)  # the partial question needs a person
+    assert normalised(ws, cases[0][1], adapter, capsys) == cases[0][1]
+    assert (BLOCK, "inverted_marks") not in findings(ws)
