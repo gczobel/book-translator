@@ -15,6 +15,22 @@ from book_translator.replay import ReplayAdapter
 from book_translator.stages.extract import extraction_request
 
 FIXTURES = Path(__file__).parent / "fixtures" / "epub"
+MINIMAL_BIBLE = json.dumps(
+    {
+        "profile": {
+            "genre": "g",
+            "period": "p",
+            "setting": "s",
+            "narrator": "n",
+            "narrator_distance": "d",
+            "tense": "t",
+            "narrative_register": "r",
+            "foreignness": "f",
+        },
+        "style": {"thoughts": "t", "numbers": "n", "titles": "t"},
+        "cast": [],
+    }
+)
 
 
 class CountingAdapter:
@@ -26,6 +42,8 @@ class CountingAdapter:
         self.calls = 0
 
     def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+        if request.stage == "consolidation":  # not counted: these tests are about extraction
+            return RawAnswer(MINIMAL_BIBLE)
         if self._fail_after is not None and self.calls >= self._fail_after:
             raise KeyboardInterrupt
         self.calls += 1
@@ -66,7 +84,10 @@ def test_run_extracts_names_places_and_phrases_per_chapter(workspace: Path) -> N
         (0, {"names": ["Name1"], "places": ["Place1"], "phrases": ["Phrase1"]}),
         (1, {"names": ["Name2"], "places": ["Place2"], "phrases": ["Phrase2"]}),
     ]
-    assert rows(workspace, "select stage, status from stages") == [("extraction", "done")]
+    assert rows(workspace, "select stage, status from stages") == [
+        ("extraction", "done"),
+        ("consolidation", "done"),
+    ]
 
 
 def test_an_interrupted_run_resumes_without_repeating_calls(workspace: Path) -> None:
@@ -81,7 +102,10 @@ def test_an_interrupted_run_resumes_without_repeating_calls(workspace: Path) -> 
     main(["run", str(workspace)], adapter=second)
 
     assert first.calls + second.calls == 2
-    assert rows(workspace, "select stage, status from stages") == [("extraction", "done")]
+    assert rows(workspace, "select stage, status from stages") == [
+        ("extraction", "done"),
+        ("consolidation", "done"),
+    ]
     assert rows(workspace, "select count(*) from extractions") == [(2,)]
 
 
@@ -126,7 +150,10 @@ def test_raising_the_cap_resumes_without_repeating_or_losing_work(workspace: Pat
 
     assert first.calls + second.calls == 2
     assert rows(workspace, "select count(*) from extractions") == [(2,)]
-    assert rows(workspace, "select stage, status from stages") == [("extraction", "done")]
+    assert rows(workspace, "select stage, status from stages") == [
+        ("extraction", "done"),
+        ("consolidation", "done"),
+    ]
     assert rows(workspace, "select round(sum(cost_usd), 4) from spend") == [(0.021,)]
 
 
