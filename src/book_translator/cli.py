@@ -26,6 +26,7 @@ from book_translator.fonts import FontCoverageError
 from book_translator.gates import GateError, approve_waiting_gate
 from book_translator.inline import InlineCodeError
 from book_translator.llm import Adapter
+from book_translator.progress import Progress
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
 from book_translator.qa import print_report
 from book_translator.review import ReviewError
@@ -70,6 +71,9 @@ def _parser() -> argparse.ArgumentParser:
     run_cmd = sub.add_parser("run", help="advance the book through its stages (resumable)")
     run_cmd.add_argument("workspace", type=Path)
     run_cmd.add_argument("--cap", type=float, help="set a new spending cap in USD before running")
+    run_cmd.add_argument(
+        "--quiet", action="store_true", help="do not print progress lines on stderr"
+    )
     status_cmd = sub.add_parser("status", help="show the stage, progress and spend of a workspace")
     status_cmd.add_argument("workspace", type=Path)
     approve_cmd = sub.add_parser("approve", help="approve the waiting review gate")
@@ -111,7 +115,7 @@ def main(
         if args.cap is not None:
             set_cap(args.workspace / workspace.DB_NAME, args.cap)
         try:
-            run(args.workspace, adapter, search)
+            run(args.workspace, adapter, search, Progress(None, quiet=args.quiet))
         except CapReachedError as exc:
             sys.exit(f"stopped: {exc}")
         print_report(args.workspace)

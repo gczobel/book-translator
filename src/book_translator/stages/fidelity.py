@@ -19,6 +19,7 @@ from book_translator.bible import Bible
 from book_translator.epub import Epub
 from book_translator.inline import EncodedBlock, InlineCodeError
 from book_translator.llm import LLM, LLMRequest
+from book_translator.progress import Tick, no_tick
 from book_translator.stages.context import bible_slice
 from book_translator.tk_gate import require_no_open_tks
 
@@ -174,11 +175,19 @@ def review_request(
     )
 
 
-def review(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model: str) -> None:
+def review(
+    db: sqlite3.Connection,
+    llm: LLM,
+    source: Epub,
+    bible: Bible,
+    model: str,
+    progress: Tick = no_tick,
+) -> None:
     """Review every scene not yet reviewed. A scene's edits are applied in one step."""
     require_no_open_tks(db)
     done = {str(r[0]) for r in db.execute("select first_block from reviewed_scenes")}
-    for scene in scenes(source):
+    all_scenes = scenes(source)
+    for index, scene in enumerate(all_scenes):
         if scene.ids[0] in done:
             continue
         targets = scene_targets(db, scene)
@@ -203,3 +212,4 @@ def review(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model: 
                     (edit.block, edit.position, edit.old, edit.new, edit.reason, edit.category),
                 )
             db.execute("insert into reviewed_scenes values (?)", (scene.ids[0],))
+        progress(index + 1, len(all_scenes))

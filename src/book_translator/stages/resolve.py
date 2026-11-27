@@ -15,6 +15,7 @@ from book_translator.bible import Bible
 from book_translator.config import TK_CONFIDENCE_THRESHOLD
 from book_translator.epub import Epub
 from book_translator.llm import LLM, LLMRequest
+from book_translator.progress import Tick, no_tick
 from book_translator.stages.context import bible_slice
 
 PROMPT_VERSION = "tk-resolution-v1"
@@ -34,7 +35,14 @@ def create_tables(db: sqlite3.Connection) -> None:
     db.execute("create table if not exists examined_tks (id text primary key)")
 
 
-def resolve(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model: str) -> None:
+def resolve(
+    db: sqlite3.Connection,
+    llm: LLM,
+    source: Epub,
+    bible: Bible,
+    model: str,
+    progress: Tick = no_tick,
+) -> None:
     """Examine every TK not yet examined. Each one's outcome is stored in a single step."""
     book = source.book()
     where = {
@@ -51,7 +59,7 @@ def resolve(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model:
         ).fetchall()
     finally:
         db.row_factory = None
-    for row in rows:
+    for index, row in enumerate(rows):
         escalate = row["scope"] == "recurring"
         chosen: Resolution | None = None
         if not escalate:
@@ -84,6 +92,7 @@ def resolve(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model:
                 )
                 replace_provisional(db, row["block"], row["provisional"], chosen.resolution)
             db.execute("insert into examined_tks values (?)", (row["id"],))
+        progress(index + 1, len(rows))
 
 
 def replace_provisional(

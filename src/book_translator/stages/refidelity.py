@@ -13,6 +13,7 @@ from book_translator.bible import Bible
 from book_translator.config import DEFAULT_FIDELITY_RETRIES
 from book_translator.epub import Epub
 from book_translator.llm import LLM
+from book_translator.progress import Tick, no_tick
 from book_translator.stages.fidelity import (
     Edit,
     review_request,
@@ -39,11 +40,19 @@ def retries(db: sqlite3.Connection) -> int:
     return int(row[0]) if row else DEFAULT_FIDELITY_RETRIES
 
 
-def recheck(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model: str) -> None:
+def recheck(
+    db: sqlite3.Connection,
+    llm: LLM,
+    source: Epub,
+    bible: Bible,
+    model: str,
+    progress: Tick = no_tick,
+) -> None:
     """Re-check every scene not yet re-checked. A scene's outcome is written in one step."""
     done = {str(r[0]) for r in db.execute("select first_block from rechecked_scenes")}
     allowed = retries(db)
-    for scene in scenes(source):
+    all_scenes = scenes(source)
+    for index, scene in enumerate(all_scenes):
         if scene.ids[0] in done:
             continue
         targets = scene_targets(db, scene)
@@ -96,3 +105,4 @@ def recheck(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model:
                     ),
                 )
             db.execute("insert into rechecked_scenes values (?)", (scene.ids[0],))
+        progress(index + 1, len(all_scenes))

@@ -19,6 +19,7 @@ from book_translator.dialogue import lay_out_legally
 from book_translator.epub import Epub
 from book_translator.inline import EncodedBlock, InlineCodeError
 from book_translator.llm import LLM, LLMRequest
+from book_translator.progress import Tick, no_tick
 from book_translator.stages.context import SourceBlock, bible_slice, concordance
 from book_translator.tk import DraftedTK
 
@@ -117,7 +118,14 @@ def create_tables(db: sqlite3.Connection) -> None:
     tk.create_tables(db)
 
 
-def draft(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model: str) -> None:
+def draft(
+    db: sqlite3.Connection,
+    llm: LLM,
+    source: Epub,
+    bible: Bible,
+    model: str,
+    progress: Tick = no_tick,
+) -> None:
     """Draft every passage not yet drafted. A passage's results are stored in one step."""
     done = {str(r[0]) for r in db.execute("select first_block from drafted_passages")}
     blocks = [
@@ -127,7 +135,8 @@ def draft(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model: s
         for b in scene.blocks
     ]
     text_of = {b.id: b.text for b in blocks}
-    for passage in passages(source):
+    all_passages = passages(source)
+    for index, passage in enumerate(all_passages):
         if passage.ids[0] in done:
             continue
         encoded = {i: source.encode_block(i) for i in passage.ids}
@@ -173,3 +182,4 @@ def draft(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model: s
                 )
             tk.store(db, result.tks)
             db.execute("insert into drafted_passages values (?)", (passage.ids[0],))
+        progress(index + 1, len(all_passages))

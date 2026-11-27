@@ -271,3 +271,23 @@ def test_the_analysis_gate_can_be_skipped_but_the_tk_gate_always_stops(
     main(["run", str(ws)], adapter=adapter)
     main(["export", str(ws)])
     assert (ws / "ws.es.epub").is_file()
+
+
+def test_the_long_stages_report_progress_per_passage_and_scene(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws = init(tmp_path)
+    capsys.readouterr()
+
+    pipeline(ws, E2EAdapter(tokens=TOKENS))
+
+    lines = capsys.readouterr().err.splitlines()
+    for stage in ("draft", "fidelity", "polish", "post_polish_fidelity"):
+        counted = [x for x in lines if x.startswith(f"[{stage}]") and "/" in x]
+        assert counted, stage
+        total = counted[-1].split("/")[1].split()[0]
+        assert f"{total}/{total}" in counted[-1]
+        assert " of $" in counted[-1]  # the spend so far against the cap
+    for stage in ("tk_resolution", "typography", "qa"):
+        assert any(x.startswith(f"[{stage}]") and "start" in x for x in lines)
+        assert any(x.startswith(f"[{stage}]") and "done" in x for x in lines)

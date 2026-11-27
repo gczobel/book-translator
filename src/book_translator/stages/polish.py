@@ -17,6 +17,7 @@ from book_translator.bible import Bible
 from book_translator.epub import Epub
 from book_translator.inline import EncodedBlock, InlineCodeError
 from book_translator.llm import LLM, LLMRequest
+from book_translator.progress import Tick, no_tick
 from book_translator.stages.context import bible_slice
 from book_translator.stages.fidelity import check_rewrite, scenes
 
@@ -76,10 +77,18 @@ def polish_schema(
     return ScenePolished
 
 
-def polish(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model: str) -> None:
+def polish(
+    db: sqlite3.Connection,
+    llm: LLM,
+    source: Epub,
+    bible: Bible,
+    model: str,
+    progress: Tick = no_tick,
+) -> None:
     """Polish every scene not yet polished. A scene's changes are applied in one step."""
     done = {str(r[0]) for r in db.execute("select first_block from polished_scenes")}
-    for scene in scenes(source):
+    all_scenes = scenes(source)
+    for index, scene in enumerate(all_scenes):
         if scene.ids[0] in done:
             continue
         targets: dict[str, dict[int, str]] = defaultdict(dict)
@@ -122,3 +131,4 @@ def polish(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model: 
                         (block.id, position, old, new),
                     )
             db.execute("insert into polished_scenes values (?)", (scene.ids[0],))
+        progress(index + 1, len(all_scenes))
