@@ -8,6 +8,7 @@ import pytest
 from book_translator import main
 from book_translator.llm import LLMRequest, RawAnswer
 from test_cli_bible_part2 import EPUB
+from test_cli_draft import source_ids
 from test_cli_fidelity import query
 from test_cli_polish import PolishAdapter, unchanged
 
@@ -77,3 +78,25 @@ def test_a_clean_book_passes_qa_with_a_report_and_no_llm_calls(
     assert "qa" not in adapter.stages
     main(["status", str(ws)])
     assert "Stage: qa (done)" in capsys.readouterr().out
+
+
+GLOSSARY = [
+    {"term": "evening", "rendering": "evening", "banned_variants": ["dusk"], "origin": "extracted"}
+]
+
+
+def test_glossary_use_passes_when_followed_and_fails_on_a_banned_variant_or_a_lost_term(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    adapter = CountingAdapter(glossary=GLOSSARY)
+    ws = translate(tmp_path, adapter)
+    block = source_ids()[1]
+    assert qa(ws, adapter, capsys).startswith("QA: passed")
+
+    set_target(ws, block, "It was a quiet dusk.")
+    out = qa(ws, adapter, capsys)
+
+    assert (block, "banned_variant") in findings(ws)
+    assert (block, "glossary") in findings(ws)  # the term is also gone
+    assert f"[banned_variant] {block}" in out
+    assert query(ws, "select status from stages where stage = 'qa'") == [("failed",)]

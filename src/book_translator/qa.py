@@ -7,6 +7,7 @@ by importing `check` and being imported before `run_qa` runs. A QA run replaces 
 report; any finding fails the stage, and `require_qa_clean` is what the build calls first.
 """
 
+import re
 import sqlite3
 import sys
 from collections import defaultdict
@@ -45,6 +46,27 @@ class QAContext:
     length_band: tuple[float, float] = (0.5, 2.0)
 
 
+_CODES = re.compile(r'<pc id="\d+">|</pc>|<ph id="\d+"/>')
+
+
+def plain(text: str) -> str:
+    """The text without its inline codes."""
+    return _CODES.sub("", text)
+
+
+def source_text(context: QAContext, block: str) -> str:
+    return plain(context.sources[block].text)
+
+
+def target_text(context: QAContext, block: str) -> str:
+    return " ".join(plain(t) for t in context.targets.get(block, []))
+
+
+def contains(text: str, phrase: str) -> bool:
+    """Whole-word, case-insensitive containment."""
+    return re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text, re.IGNORECASE) is not None
+
+
 Check = Callable[[QAContext], list[Finding]]
 CHECKS: dict[str, Check] = {}
 
@@ -55,6 +77,29 @@ def check(name: str) -> Callable[[Check], Check]:
         return function
 
     return register
+
+
+@check("glossary")
+def glossary_renderings(context: QAContext) -> list[Finding]:
+    """A source block using a glossary term must carry its rendering."""
+    return [
+        Finding("glossary", block, f"{entry.term!r} should be rendered {entry.rendering!r}")
+        for block in context.sources
+        for entry in context.bible.glossary
+        if contains(source_text(context, block), entry.term)
+        and not contains(target_text(context, block), entry.rendering)
+    ]
+
+
+@check("banned_variant")
+def banned_variants(context: QAContext) -> list[Finding]:
+    return [
+        Finding("banned_variant", block, f"uses {variant!r}, banned for {entry.term!r}")
+        for block in context.sources
+        for entry in context.bible.glossary
+        for variant in entry.banned_variants
+        if contains(target_text(context, block), variant)
+    ]
 
 
 def create_tables(db: sqlite3.Connection) -> None:
