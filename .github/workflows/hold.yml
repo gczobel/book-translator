@@ -33,7 +33,8 @@ jobs:
           set -euo pipefail
           # Any failure to read the labels fails the step, so the check fails closed.
           labels=$(gh api --paginate "repos/${REPO}/issues/${PR}/labels" --jq '.[].name')
-          if printf '%s\n' "$labels" | grep -qx 'hold'; then
+          # GitHub label names are case-insensitive, so match 'Hold' too.
+          if printf '%s\n' "$labels" | grep -qix 'hold'; then
             echo "This PR is on hold. Remove the 'hold' label to let it merge."
             exit 1
           fi

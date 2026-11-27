@@ -8,11 +8,14 @@ the switch can't be read: automation stops and the owner is told.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
+
+State = Literal["run", "paused", "unreadable"]  # unreadable: stop and escalate
 
 
 @dataclass(frozen=True)
 class Decision:
-    state: str  # "run", "paused" (deliberate) or "unreadable" (stop and escalate)
+    state: State
 
     @property
     def paused(self) -> bool:
