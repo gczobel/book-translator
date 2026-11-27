@@ -103,9 +103,15 @@ def test_mints_an_installation_token_with_only_the_pr_permissions(
 
 
 class Sink:
-    def __init__(self, tty: bool = False) -> None:
+    def __init__(self, tty: bool = False, fd: int | None = None) -> None:
         self.text = ""
         self._tty = tty
+        self._fd = fd
+
+    def fileno(self) -> int:
+        if self._fd is None:
+            raise OSError("no file descriptor")
+        return self._fd
 
     def write(self, data: str) -> int:
         self.text += data
@@ -125,6 +131,16 @@ def test_run_writes_only_the_token_to_a_pipe(tmp_path: Path) -> None:
     out, err = Sink(), Sink()
     code = run({"AGENT_APP_KEY_PATH": str(key)}, out, err, mint=fake_mint)
     assert (code, out.text, err.text) == (0, "ghs_secret_token\n", "")
+
+
+def test_run_refuses_to_write_the_token_to_a_regular_file(tmp_path: Path) -> None:
+    key = tmp_path / "k.pem"
+    key.write_text("x")
+    with (tmp_path / "out.txt").open("w") as target:
+        out, err = Sink(fd=target.fileno()), Sink()
+        assert run({"AGENT_APP_KEY_PATH": str(key)}, out, err, mint=fake_mint) == 1
+    assert "ghs_" not in out.text + err.text
+    assert (tmp_path / "out.txt").read_text() == ""
 
 
 def test_run_refuses_to_print_the_token_on_a_terminal(tmp_path: Path) -> None:
