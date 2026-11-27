@@ -26,10 +26,10 @@ from book_translator.fonts import FontCoverageError
 from book_translator.gates import GateError, approve_waiting_gate
 from book_translator.inline import InlineCodeError
 from book_translator.llm import Adapter
+from book_translator.progress import Progress
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
 from book_translator.qa import print_report
 from book_translator.review import ReviewError
-from book_translator.progress import Progress
 from book_translator.run import run
 from book_translator.search import Search, WikiSearch
 from book_translator.status import read_status, render

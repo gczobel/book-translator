@@ -129,7 +129,9 @@ def _extraction(db: sqlite3.Connection, workspace: Path, llm: LLM, progress: Pro
     _set_status(db, "extraction", "running")
     source = open_epub(workspace / SOURCE_NAME)
     done = {int(r[0]) for r in db.execute("select chapter from extractions")}
-    for index, chapter in enumerate(source.book().chapters):
+    chapters = source.book().chapters
+    tick = progress.unit("extraction", "chapter")
+    for index, chapter in enumerate(chapters):
         if index in done:
             continue
         text = "\n".join(source.encode_block(b.id).text for s in chapter.scenes for b in s.blocks)
@@ -138,6 +140,7 @@ def _extraction(db: sqlite3.Connection, workspace: Path, llm: LLM, progress: Pro
             db.execute(
                 "insert into extractions values (?, ?)", (index, result.output.model_dump_json())
             )
+        tick(index + 1, len(chapters))
     _set_status(db, "extraction", "done")
     progress.end("extraction")
 
@@ -213,7 +216,14 @@ def _draft(db: sqlite3.Connection, workspace: Path, llm: LLM, progress: Progress
         drafting.create_tables(db)
     _set_status(db, "draft", "running")
     bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
-    drafting.draft(db, llm, open_epub(workspace / SOURCE_NAME), bible, STAGE_MODELS["draft"])
+    drafting.draft(
+        db,
+        llm,
+        open_epub(workspace / SOURCE_NAME),
+        bible,
+        STAGE_MODELS["draft"],
+        progress.unit("draft", "passage"),
+    )
     _set_status(db, "draft", "done")
     progress.end("draft")
 
@@ -226,7 +236,9 @@ def _tk_resolution(db: sqlite3.Connection, workspace: Path, llm: LLM, progress: 
     _set_status(db, "tk_resolution", "running")
     bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
     source = open_epub(workspace / SOURCE_NAME)
-    resolving.resolve(db, llm, source, bible, STAGE_MODELS["tk_resolution"])
+    resolving.resolve(
+        db, llm, source, bible, STAGE_MODELS["tk_resolution"], progress.unit("tk_resolution", "tk")
+    )
     _set_status(db, "tk_resolution", "done")
     progress.end("tk_resolution")
 
@@ -239,7 +251,9 @@ def _fidelity(db: sqlite3.Connection, workspace: Path, llm: LLM, progress: Progr
     _set_status(db, "fidelity", "running")
     bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
     source = open_epub(workspace / SOURCE_NAME)
-    fidelity_check.review(db, llm, source, bible, STAGE_MODELS["fidelity"])
+    fidelity_check.review(
+        db, llm, source, bible, STAGE_MODELS["fidelity"], progress.unit("fidelity", "scene")
+    )
     _set_status(db, "fidelity", "done")
     progress.end("fidelity")
 
@@ -252,7 +266,9 @@ def _polish(db: sqlite3.Connection, workspace: Path, llm: LLM, progress: Progres
     _set_status(db, "polish", "running")
     bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
     source = open_epub(workspace / SOURCE_NAME)
-    polishing.polish(db, llm, source, bible, STAGE_MODELS["polish"])
+    polishing.polish(
+        db, llm, source, bible, STAGE_MODELS["polish"], progress.unit("polish", "scene")
+    )
     _set_status(db, "polish", "done")
     progress.end("polish")
 
@@ -268,7 +284,7 @@ def _post_polish_fidelity(
     _set_status(db, stage, "running")
     bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
     source = open_epub(workspace / SOURCE_NAME)
-    post_polish.recheck(db, llm, source, bible, STAGE_MODELS[stage])
+    post_polish.recheck(db, llm, source, bible, STAGE_MODELS[stage], progress.unit(stage, "scene"))
     _set_status(db, stage, "done")
     progress.end(stage)
 

@@ -255,3 +255,34 @@ def test_quiet_suppresses_the_progress_lines_and_leaves_stdout_alone(
     assert loud.err.strip() != ""
     assert quiet.err == ""
     assert quiet.out.replace(str(other), "W") == loud.out.replace(str(workspace), "W")
+
+
+def test_a_resumed_run_says_which_stages_are_skipped(
+    workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main(["run", str(workspace)], adapter=CountingAdapter(recordings(FIXTURES / "plain.epub")))
+    capsys.readouterr()
+
+    again = CountingAdapter({})
+    main(["run", str(workspace)], adapter=again)
+
+    lines = progress_lines(capsys)
+    for stage in ("extraction", "consolidation", "completion", "enrichment"):
+        assert any(f"[{stage}]" in line and "skipped" in line for line in lines)
+        assert not any(f"[{stage}]" in line and "start" in line for line in lines)
+    assert again.calls == 0
+
+
+def test_extraction_reports_each_chapter_with_the_spend_against_the_cap(
+    workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    capsys.readouterr()
+    main(
+        ["run", str(workspace), "--cap", "3"],
+        adapter=costly(recordings(FIXTURES / "plain.epub")),
+    )
+
+    lines = [x for x in progress_lines(capsys) if x.startswith("[extraction]") and "/" in x]
+    assert [("1/2" in x, "2/2" in x) for x in lines] == [(True, False), (False, True)]
+    assert "$0.01 of $3.00" in lines[0]
+    assert "$0.02 of $3.00" in lines[1]
