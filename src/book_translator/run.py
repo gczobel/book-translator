@@ -7,11 +7,13 @@ units of work there too, so a second run does only what is left.
 import sqlite3
 from pathlib import Path
 
+from book_translator.bible import Bible
 from book_translator.budget import Budget
 from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
 from book_translator.llm import LLM, Adapter
 from book_translator.search import Search
+from book_translator.stages.consolidate import consolidation_request
 from book_translator.stages.extract import Extraction, extraction_request
 from book_translator.stages.research import book_title, research
 from book_translator.workspace import DB_NAME, SOURCE_NAME
@@ -33,11 +35,12 @@ def run(workspace: Path, adapter: Adapter, search: Search | None = None) -> None
                 "create table if not exists glossary"
                 " (term text, rendering text, origin text, source text)"
             )
+            db.execute("create table if not exists bible (result text not null)")
         if search is not None:
             _research(db, workspace, search)
-        _extraction(
-            db, workspace, LLM(adapter, workspace / DB_NAME, budget=Budget(workspace / DB_NAME))
-        )
+        llm = LLM(adapter, workspace / DB_NAME, budget=Budget(workspace / DB_NAME))
+        _extraction(db, workspace, llm)
+        _consolidation(db, llm)
     finally:
         db.close()
 
@@ -79,3 +82,14 @@ def _research(db: sqlite3.Connection, workspace: Path, search: Search) -> None:
     target = db.execute("select value from settings where key = 'target'").fetchone()
     found = title is not None and research(db, search, title, str(target[0]) if target else "es")
     _set_status(db, "research", "done" if found else "nothing found")
+
+
+def _consolidation(db: sqlite3.Connection, llm: LLM) -> None:
+    if _status(db, "consolidation") == "done":
+        return
+    _set_status(db, "consolidation", "running")
+    result = llm.call(consolidation_request(STAGE_MODELS["consolidation"], db), Bible)
+    with db:
+        db.execute("delete from bible")
+        db.execute("insert into bible values (?)", (result.output.model_dump_json(),))
+    _set_status(db, "consolidation", "done")
