@@ -7,6 +7,7 @@ by importing `check` and being imported before `run_qa` runs. A QA run replaces 
 report; any finding fails the stage, and `require_qa_clean` is what the build calls first.
 """
 
+import hashlib
 import re
 import sqlite3
 from collections import defaultdict
@@ -327,6 +328,16 @@ def create_tables(db: sqlite3.Connection) -> None:
         "create table if not exists qa_findings (id integer primary key autoincrement,"
         " check_name text not null, block text not null, message text not null)"
     )
+    db.execute(
+        "create table if not exists qa_accepted (id integer primary key autoincrement,"
+        " check_name text not null, block text not null, message text not null,"
+        " reason text not null default '')"
+    )
+    db.execute(
+        "create table if not exists qa_waivers (check_name text not null, block text not null,"
+        " target_hash text not null, reason text not null default '',"
+        " primary key (check_name, block))"
+    )
 
 
 def run_checks(context: QAContext) -> list[Finding]:
@@ -358,17 +369,103 @@ def load_context(db: sqlite3.Connection, source: Epub, bible: Bible) -> QAContex
     )
 
 
+class WaiverError(Exception):
+    """A finding cannot be waived (there is no such open finding)."""
+
+
+def target_hash(texts: list[str]) -> str:
+    """What a waiver was given for: the block's target text as it was when it was looked at."""
+    return hashlib.sha256(" ".join(plain(t) for t in texts).encode()).hexdigest()
+
+
 def run_qa(db: sqlite3.Connection, source: Epub, bible: Bible) -> list[Finding]:
-    """Run every check and store the report, replacing the previous one."""
-    found = run_checks(load_context(db, source, bible))
+    """Run every check and store the report, replacing the previous one. The findings returned
+    are the open ones: a finding the owner waived, for a block whose text has not changed since,
+    is kept apart as accepted."""
+    context = load_context(db, source, bible)
+    found = run_checks(context)
     with db:
         create_tables(db)
+        waived = {
+            (str(c), str(b)): (str(h), str(r))
+            for c, b, h, r in db.execute(
+                "select check_name, block, target_hash, reason from qa_waivers"
+            )
+        }
+        open_, accepted = [], []
+        for f in found:
+            waiver = waived.get((f.check, f.block))
+            if waiver and waiver[0] == target_hash(context.targets.get(f.block, [])):
+                accepted.append((f, waiver[1]))
+            else:
+                open_.append(f)
         db.execute("delete from qa_findings")
+        db.execute("delete from qa_accepted")
         db.executemany(
             "insert into qa_findings (check_name, block, message) values (?, ?, ?)",
-            [(f.check, f.block, f.message) for f in found],
+            [(f.check, f.block, f.message) for f in open_],
         )
-    return found
+        db.executemany(
+            "insert into qa_accepted (check_name, block, message, reason) values (?, ?, ?, ?)",
+            [(f.check, f.block, f.message, why) for f, why in accepted],
+        )
+    return open_
+
+
+def waive(db: sqlite3.Connection, check_name: str, blocks: list[str], reason: str = "") -> int:
+    """Accept the open `check_name` findings of `blocks`, as they stand now. Returns how many
+    findings that accepted. A block with no such open finding is an error and changes nothing."""
+    create_tables(db)
+    missing = [
+        b
+        for b in blocks
+        if not db.execute(
+            "select 1 from qa_findings where check_name = ? and block = ?", (check_name, b)
+        ).fetchone()
+    ]
+    if missing:
+        raise WaiverError(f"no open {check_name} finding in block(s): {', '.join(missing)}")
+    count = 0
+    with db:
+        for block in blocks:
+            texts = [
+                str(r[0])
+                for r in db.execute(
+                    "select text from targets where source = ? order by position", (block,)
+                )
+            ]
+            db.execute(
+                "insert or replace into qa_waivers values (?, ?, ?, ?)",
+                (check_name, block, target_hash(texts), reason),
+            )
+            rows = db.execute(
+                "select check_name, block, message from qa_findings"
+                " where check_name = ? and block = ?",
+                (check_name, block),
+            ).fetchall()
+            db.executemany(
+                "insert into qa_accepted (check_name, block, message, reason) values (?, ?, ?, ?)",
+                [(*row, reason) for row in rows],
+            )
+            db.execute(
+                "delete from qa_findings where check_name = ? and block = ?", (check_name, block)
+            )
+            count += len(rows)
+        if not db.execute("select 1 from qa_findings").fetchone():
+            db.execute("update stages set status = 'done' where stage = ?", (STAGE,))
+    return count
+
+
+def stored_accepted(db: sqlite3.Connection) -> list[tuple[Finding, str]]:
+    tables = {r[0] for r in db.execute("select name from sqlite_master where type = 'table'")}
+    if "qa_accepted" not in tables:
+        return []
+    return [
+        (Finding(str(c), str(b), str(m)), str(r))
+        for c, b, m, r in db.execute(
+            "select check_name, block, message, reason from qa_accepted order by id"
+        )
+    ]
 
 
 def stored_findings(db: sqlite3.Connection) -> list[Finding]:
@@ -381,11 +478,21 @@ def stored_findings(db: sqlite3.Connection) -> list[Finding]:
     ]
 
 
-def render(findings: list[Finding]) -> str:
-    if not findings:
-        return "QA: passed"
-    lines = [f"QA: {len(findings)} finding(s) block the build"]
+def render(findings: list[Finding], accepted: list[tuple[Finding, str]] | None = None) -> str:
+    accepted = accepted or []
+    note = f" ({len(accepted)} accepted)" if accepted else ""
+    lines = [
+        "QA: passed" + note
+        if not findings
+        else f"QA: {len(findings)} finding(s) block the build" + note
+    ]
     lines += [f"  [{f.check}] {f.block}: {f.message}" for f in findings]
+    if accepted:
+        lines.append("  Accepted by the owner:")
+        lines += [
+            f"  [{f.check}] {f.block}: {f.message}" + (f" ({why})" if why else "")
+            for f, why in accepted
+        ]
     return "\n".join(lines)
 
 
@@ -408,8 +515,9 @@ def print_report(workspace: Path) -> None:
             else None
         )
         found = stored_findings(db)
+        accepted = stored_accepted(db)
     finally:
         db.close()
     if row is None:
         return
-    print(render(found))
+    print(render(found, accepted))
