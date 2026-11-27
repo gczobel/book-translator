@@ -8,12 +8,13 @@ Edits are applied in one step per scene and recorded for the quality report.
 """
 
 import json
+import re
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Literal
+from typing import Annotated, Any, Literal, get_args
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, model_validator
 
 from book_translator.bible import Bible
 from book_translator.epub import Epub
@@ -22,6 +23,7 @@ from book_translator.llm import LLM, LLMRequest
 from book_translator.progress import Tick, no_tick
 from book_translator.stages.context import bible_slice
 from book_translator.tk_gate import require_no_open_tks
+from book_translator.tolerance import choice
 
 PROMPT_VERSION = "fidelity-v1"
 _PROMPT = (
@@ -32,13 +34,31 @@ _PROMPT = (
     "a glossary rendering."
 )
 
-Category = Literal[
+_CATEGORIES = Literal[
     "omission",
     "addition",
     "meaning drift",
     "flattened tense or free indirect speech",
     "wrong form of address",
 ]
+
+
+Category = Annotated[_CATEGORIES, BeforeValidator(choice(*get_args(_CATEGORIES)))]
+
+_QUOTES = {"'": "['‘’]", "’": "['‘’]", "‘": "['‘’]", '"': '["“”]', "“": '["“”]', "”": '["“”]'}
+
+
+def locate(old: str, text: str) -> str:
+    """The stretch of `text` that `old` quotes, if it differs only in spacing, case or quote
+    marks and there is exactly one; otherwise `old` itself."""
+    if old in text:
+        return old
+    tokens = old.split()
+    if not tokens:
+        return old
+    pattern = r"\s+".join("".join(_QUOTES.get(c) or re.escape(c) for c in t) for t in tokens)
+    found = list(re.finditer(pattern, text, re.IGNORECASE))
+    return found[0].group(0) if len(found) == 1 else old
 
 
 class Edit(BaseModel):
@@ -117,6 +137,22 @@ def review_schema(
     """The review's schema for this scene: every edit applicable, legal and within the bible."""
 
     class SceneReview(Review):
+        @model_validator(mode="before")
+        @classmethod
+        def _find_the_old_text(cls, data: Any) -> Any:
+            if not isinstance(data, dict) or not isinstance(data.get("edits"), list):
+                return data
+            edits = []
+            for e in data["edits"]:
+                if isinstance(e, dict) and isinstance(e.get("old"), str):
+                    block, position = e.get("block"), e.get("position")
+                    if isinstance(block, str) and isinstance(position, int):
+                        text = targets.get(block, {}).get(position)
+                        if text is not None:
+                            e = {**e, "old": locate(e["old"], text)}
+                edits.append(e)
+            return {**data, "edits": edits}
+
         @model_validator(mode="after")
         def _applicable(self) -> "SceneReview":
             result = {i: dict(t) for i, t in targets.items()}

@@ -154,6 +154,18 @@ def test_an_edit_whose_old_text_is_not_in_the_target_is_retried(tmp_path: Path) 
     assert target_text(ws, block) == "It seemed a quiet evening."
 
 
+def test_an_old_text_quoted_with_different_spacing_is_found_in_the_target(tmp_path: Path) -> None:
+    block = source_ids()[1]
+    answers = [edit(block, "was  a\n quiet", "seemed a quiet", "Meaning Drift")]
+    adapter = FidelityAdapter(answering(block, answers))
+
+    ws = run_to_the_end(tmp_path, adapter)
+
+    assert target_text(ws, block) == "It seemed a quiet evening."
+    assert [r[0] for r in query(ws, "select category from fidelity_edits")] == ["meaning drift"]
+    assert query(ws, "select old from fidelity_edits") == [("was a quiet",)]
+
+
 def test_an_edit_that_breaks_inline_codes_is_retried(tmp_path: Path) -> None:
     source = open_epub(EPUB)
     marked = next(i for i in source_ids() if '<pc id="1">' in source.encode_block(i).text)
