@@ -62,6 +62,11 @@ class Epub:
         except KeyError:
             raise EpubError(f"no such member: {name}") from None
 
+    @property
+    def opf_path(self) -> str:
+        """Member name of the package document."""
+        return self._opf_path
+
     def spine(self) -> list[str]:
         """Member names of the content documents, in reading order."""
         opf = etree.fromstring(self.read(self._opf_path))
@@ -95,7 +100,7 @@ class Epub:
         encoded.validate(text)
         member, element = self._block_element(block_id)
         decode(element, encoded, text)
-        self._store(member, element.getroottree())
+        self.store(member, element.getroottree())
 
     def rebuild_block(self, block_id: str, encoded: EncodedBlock, texts: Sequence[str]) -> None:
         """Replace a source block with one target block per entry of `texts`, in place.
@@ -124,7 +129,7 @@ class Epub:
         for piece, text in zip(pieces, texts, strict=True):
             decode(piece, encoded, text)
         self._extras.setdefault(member, {})[source_index] = len(texts) - 1
-        self._store(member, element.getroottree())
+        self.store(member, element.getroottree())
 
     def target_blocks(self) -> list[TargetBlock]:
         """Every block made by `rebuild_block`, in document order, with its source block id."""
@@ -139,13 +144,17 @@ class Epub:
                 shift += extra
         return out
 
-    def _store(self, member: str, tree: etree._ElementTree) -> None:
+    def store(self, member: str, tree: etree._ElementTree) -> None:
         """Keep the member's original bytes when the edit changed nothing (an identity rebuild)."""
         member_data = self._by_name[member]
         if etree.tostring(tree, method="c14n") != etree.tostring(
             etree.fromstring(member_data.data), method="c14n"
         ):
             member_data.data = etree.tostring(tree, xml_declaration=True, encoding="utf-8")
+
+    def locate_block(self, block_id: str) -> tuple[str, etree._Element]:
+        """The member and element behind a block id, for editing; save it with `store`."""
+        return self._block_element(block_id)
 
     def _block_element(self, block_id: str) -> tuple[str, etree._Element]:
         member, _, number = block_id.rpartition("#")
