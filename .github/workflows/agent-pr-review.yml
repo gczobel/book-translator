@@ -1,0 +1,61 @@
+name: agent-pr-review
+
+# The `llm-review` required check for agent code PRs (ticket #25, ADR 0005, "Code PRs from
+# agents"). It may block an Agent App PR and can never approve one. Every other PR passes it
+# untouched, so it can be a required check for all of them.
+#
+# PLACEHOLDER: the Anthropic-backed reviewer is not built yet. This workflow gives the check no
+# verdict, so every Agent App PR fails it ("no review verdict") and none can auto-merge. What
+# the real reviewer needs is listed in .github/scripts/agentpr/review.py and in the PR notes.
+#
+# `pull_request_target` runs this workflow and its script from the base branch (main), never
+# from the PR, and the PR is never checked out: the check reads the PR only through the API.
+# When the reviewer is added, the job that calls the model must hold only the Anthropic key and
+# a read-only token, and must be gated on the pause switch (see pause.yml); the job that turns
+# its verdict into this check holds no secret. This workflow is exempt from the pause audit
+# only because a required check must always report: a skipped check would count as passing.
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] the PR is never checked out; see above
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Least privilege by default; each job asks for what it needs (ADR 0005).
+permissions: {}
+
+# A new push restarts the check; an old run for the same PR is superseded.
+concurrency:
+  group: agent-pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  run-llm-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # The base branch, by default for this trigger. Never the PR head.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - run: python3 -m agentpr review
+        env:
+          PYTHONPATH: .github/scripts
+          GH_TOKEN: ${{ github.token }}
+          AGENTPR_REPO: ${{ github.repository }}
+          AGENTPR_PR: ${{ github.event.pull_request.number }}
+
+  # The required check. Fails unless the review job succeeded; skipped or cancelled never passes.
+  llm-review:
+    name: llm-review
+    needs: [run-llm-review]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require every upstream job to have succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "upstream results: $RESULTS"
+          [[ -n "$RESULTS" ]] || exit 1
+          for r in $RESULTS; do [[ "$r" == success ]] || exit 1; done

@@ -18,7 +18,9 @@ GATE_WORKFLOW = "./.github/workflows/pause.yml"
 # Workflows that are not unattended automation: PR checks, the pause switch itself, and the
 # escalation job, which only runs on behalf of an automation workflow that already paused.
 # A test also requires that none of them is scheduled or triggered by another workflow.
-EXEMPT_WORKFLOWS = frozenset({"ci", "workflow-security", "guard", "hold", "escalate", "pause"})
+EXEMPT_WORKFLOWS = frozenset(
+    {"ci", "workflow-security", "guard", "hold", "escalate", "pause", "agent-pr-review"}
+)
 
 # The one scheduled workflow that must keep running while paused: it tells the owner the
 # switch can't be read.
