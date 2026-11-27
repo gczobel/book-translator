@@ -11,7 +11,8 @@ from typing import Any
 
 import pytest
 
-from agenttoken.core import APP_ID, PERMISSIONS, make_jwt, mint_token
+from agenttoken.core import APP_ID, PERMISSIONS, TokenError, make_jwt, mint_token
+from agenttoken.run import run
 
 
 def b64d(part: str) -> bytes:
@@ -99,6 +100,69 @@ def test_mints_an_installation_token_with_only_the_pr_permissions(
         ),
     ]
     assert auths[0].count(".") == 2  # the App JWT, not any ambient credential
+
+
+class Sink:
+    def __init__(self, tty: bool = False) -> None:
+        self.text = ""
+        self._tty = tty
+
+    def write(self, data: str) -> int:
+        self.text += data
+        return len(data)
+
+    def isatty(self) -> bool:
+        return self._tty
+
+
+def fake_mint(key_path: Path) -> str:
+    return "ghs_secret_token"
+
+
+def test_run_writes_only_the_token_to_a_pipe(tmp_path: Path) -> None:
+    key = tmp_path / "k.pem"
+    key.write_text("not a real key")
+    out, err = Sink(), Sink()
+    code = run({"AGENT_APP_KEY_PATH": str(key)}, out, err, mint=fake_mint)
+    assert (code, out.text, err.text) == (0, "ghs_secret_token\n", "")
+
+
+def test_run_refuses_to_print_the_token_on_a_terminal(tmp_path: Path) -> None:
+    key = tmp_path / "k.pem"
+    key.write_text("x")
+    out, err = Sink(tty=True), Sink()
+    assert run({"AGENT_APP_KEY_PATH": str(key)}, out, err, mint=fake_mint) == 1
+    assert "ghs_" not in out.text + err.text
+
+
+def test_run_without_a_key_path_fails_and_ignores_owner_credentials() -> None:
+    out, err = Sink(), Sink()
+
+    def never(key_path: Path) -> str:
+        raise AssertionError("must not mint")
+
+    env = {"GH_TOKEN": "owner", "GITHUB_TOKEN": "owner"}
+    assert run(env, out, err, mint=never) == 1
+    assert out.text == ""
+    assert "AGENT_APP_KEY_PATH" in err.text and "owner" not in err.text
+
+
+def test_run_reports_a_missing_key_file_without_leaking_anything(tmp_path: Path) -> None:
+    out, err = Sink(), Sink()
+    code = run({"AGENT_APP_KEY_PATH": str(tmp_path / "nope.pem")}, out, err, mint=fake_mint)
+    assert code == 1 and out.text == ""
+
+
+def test_run_reports_mint_failures_with_the_error_message_only(tmp_path: Path) -> None:
+    key = tmp_path / "k.pem"
+    key.write_text("x")
+
+    def boom(key_path: Path) -> str:
+        raise TokenError("GitHub refused the request (HTTP 401)")
+
+    out, err = Sink(), Sink()
+    assert run({"AGENT_APP_KEY_PATH": str(key)}, out, err, mint=boom) == 1
+    assert out.text == "" and "HTTP 401" in err.text
 
 
 def test_requested_permissions_never_include_workflows_or_administration() -> None:
