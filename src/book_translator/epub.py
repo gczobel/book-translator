@@ -7,6 +7,7 @@ member. Zip metadata (member order, compression, timestamps, attributes) is pres
 
 import posixpath
 import zipfile
+from collections.abc import Sequence
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -21,11 +22,19 @@ _CONTAINER = "META-INF/container.xml"
 _XML_SUFFIXES = (".xhtml", ".html", ".htm", ".opf", ".ncx", ".xml")
 
 
-__all__ = ["Epub", "EpubError", "InlineCodeError", "open_epub"]
+__all__ = ["Epub", "EpubError", "InlineCodeError", "TargetBlock", "open_epub"]
 
 
 class EpubError(Exception):
     """The file is not a readable EPUB."""
+
+
+@dataclass(frozen=True)
+class TargetBlock:
+    """A block of the rebuilt book, with the source block it was made from."""
+
+    id: str
+    source: str
 
 
 @dataclass
@@ -39,6 +48,7 @@ class Epub:
         self._members = members
         self._by_name = {m.info.filename: m for m in members}
         self._opf_path = self._find_opf()
+        self._extras: dict[str, dict[int, int]] = {}  # member -> source block index -> clones added
 
     @property
     def names(self) -> list[str]:
@@ -85,12 +95,64 @@ class Epub:
         encoded.validate(text)
         member, element = self._block_element(block_id)
         decode(element, encoded, text)
-        root = element.getroottree()
-        self._by_name[member].data = etree.tostring(root, xml_declaration=True, encoding="utf-8")
+        self._store(member, element.getroottree())
+
+    def rebuild_block(self, block_id: str, encoded: EncodedBlock, texts: Sequence[str]) -> None:
+        """Replace a source block with one target block per entry of `texts`, in place.
+
+        Each target block is a clone of the source element (same tag, class and attributes;
+        the `id` stays on the first). `block_id` is always the id the block had in the source
+        book, however many blocks earlier rebuilds added. Raises InlineCodeError, leaving the
+        document unchanged, if the codes in `texts` are not a legal rendering of the block's.
+        """
+        encoded.validate_pieces(texts)
+        member, element = self._block_element(block_id)
+        parent = element.getparent()
+        assert parent is not None
+        source_index = int(block_id.rpartition("#")[2])
+        for _ in range(self._extras.get(member, {}).get(source_index, 0)):
+            sibling = element.getnext()
+            assert sibling is not None
+            parent.remove(sibling)
+        pieces = [element]
+        for _ in texts[1:]:
+            clone = copy(element)
+            clone.attrib.pop("id", "")
+            clone.tail = element.tail
+            pieces[-1].addnext(clone)
+            pieces.append(clone)
+        for piece, text in zip(pieces, texts, strict=True):
+            decode(piece, encoded, text)
+        self._extras.setdefault(member, {})[source_index] = len(texts) - 1
+        self._store(member, element.getroottree())
+
+    def target_blocks(self) -> list[TargetBlock]:
+        """Every block made by `rebuild_block`, in document order, with its source block id."""
+        out: list[TargetBlock] = []
+        for member, splits in self._extras.items():
+            shift = 0
+            for index, extra in sorted(splits.items()):
+                out += [
+                    TargetBlock(f"{member}#{index + shift + k}", f"{member}#{index}")
+                    for k in range(extra + 1)
+                ]
+                shift += extra
+        return out
+
+    def _store(self, member: str, tree: etree._ElementTree) -> None:
+        """Keep the member's original bytes when the edit changed nothing (an identity rebuild)."""
+        member_data = self._by_name[member]
+        if etree.tostring(tree, method="c14n") != etree.tostring(
+            etree.fromstring(member_data.data), method="c14n"
+        ):
+            member_data.data = etree.tostring(tree, xml_declaration=True, encoding="utf-8")
 
     def _block_element(self, block_id: str) -> tuple[str, etree._Element]:
-        member = block_id.rpartition("#")[0]
-        element = find_element(etree.fromstring(self.read(member)), block_id)
+        member, _, number = block_id.rpartition("#")
+        shift = sum(n for i, n in self._extras.get(member, {}).items() if i < int(number))
+        element = find_element(
+            etree.fromstring(self.read(member)), f"{member}#{int(number) + shift}"
+        )
         if element is None:
             raise EpubError(f"no such block: {block_id}")
         return member, element
