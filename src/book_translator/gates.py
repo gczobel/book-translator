@@ -9,6 +9,7 @@ from pathlib import Path
 
 from book_translator.bible import Bible
 from book_translator.review import Card, read_choices, record_choices, write_review
+from book_translator.review_html import write_html
 from book_translator.workspace import DB_NAME
 
 ANALYSIS = "analysis"
@@ -145,6 +146,7 @@ def approve_waiting_gate(workspace: Path) -> str:
         stage = str(row[0])
         gate = stage.removesuffix(" gate")
         choices = read_choices(db, review_path(workspace, gate), gate)
+        write_html(review_path(workspace, gate))
         record_choices(db, gate, choices)
         APPLIERS[gate](db, choices)
         with db:
