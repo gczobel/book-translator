@@ -1,0 +1,128 @@
+name: agent-pr
+
+# Phase 1 of the agent code-PR flow (ticket #25, ADR 0005, "Code PRs from agents"): until the
+# first release a PR written by the Agent App merges by itself once CI, the guard, the hold
+# check and the LLM review have passed. Phase 2 (owner approval on every agent PR) is
+# first-release work and is not built here.
+#
+# This is NOT the Dependabot/release sweep: it never arms auto-merge and never touches those
+# PRs. The rule lives in .github/scripts/agentpr/core.py (tested). It requires: author is the
+# Agent App's bot ID, head repo is this repo, branch under agent/, no guarded path touched, every
+# required check (guard and llm-review included) last succeeded from GitHub Actions, no `hold`
+# label, no owner change request. The pause switch gates every job.
+#
+# `workflow_run` runs this file and its scripts from the default branch, and nothing from a PR
+# is checked out or run. The event only says which commit finished; the PR is found and judged
+# through the API, so event payload text is never trusted. The merge pins the head commit, so a
+# push after the decision is refused. Rebase-merge keeps the agent's atomic commits.
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] nothing from the PR is checked out or run; see above
+    workflows: [ci, guard, hold, workflow-security, agent-pr-review]
+    types: [completed]
+  # The owner can run the same decision for one PR by hand (a phone is enough).
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        type: string
+        required: true
+
+# Least privilege by default; each job asks for what it needs (ADR 0005).
+permissions: {}
+
+# One queue per PR. Events for the same commit wait their turn; the decision reads live state,
+# so a later run subsumes an earlier one. Different PRs don't block each other.
+concurrency:
+  group: agent-pr-${{ github.event.workflow_run.head_sha || inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    permissions:
+      contents: read # a called workflow can't exceed its caller's permissions
+    uses: ./.github/workflows/pause.yml # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+
+  merge:
+    needs: [gate]
+    if: ${{ needs.gate.outputs.paused == 'false' }}
+    runs-on: ubuntu-latest
+    # The environment is limited to main and holds the maintenance App's key.
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # Rebase-merging and deleting the branch need contents and pull requests write; the
+      # decision reads check runs. The token is revoked when the job ends.
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        id: token
+        with:
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-checks: read
+      - id: decide
+        run: python3 -m agentpr merge
+        env:
+          PYTHONPATH: .github/scripts
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          AGENTPR_REPO: ${{ github.repository }}
+          AGENTPR_SHA: ${{ github.event.workflow_run.head_sha }}
+          AGENTPR_PR: ${{ inputs.pr }}
+      # `pr` and `sha` are written only by the script, which validated them (a number and a
+      # 40-character hash). The head commit is pinned: a push after the decision is refused.
+      - name: Rebase-merge the pull request
+        if: ${{ steps.decide.outputs.merge == 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.decide.outputs.pr }}
+          SHA: ${{ steps.decide.outputs.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[0-9]+$ && "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          gh pr merge "$PR" --repo "$REPO" --rebase --delete-branch --match-head-commit "$SHA"
+
+  # The pause gate itself errored: paused is empty, which is not a genuine pause ('true'),
+  # so this is a failure to escalate. A real pause never reaches this job.
+  escalate-gate-failed:
+    needs: [gate]
+    if: ${{ always() && needs.gate.result == 'failure' }}
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+        with:
+          reason: workflow-failed
+          key: agent-pr-gate-failed
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
+
+  # Not merging is normal and silent. This runs when deciding or merging itself failed or was
+  # cancelled; `||` is avoided on purpose because the pause audit only accepts a gate
+  # comparison joined by `&&`. The merge job only skips when paused, which this excludes.
+  escalate-failed:
+    needs: [gate, merge]
+    if: ${{ always() && needs.gate.outputs.paused == 'false' && needs.merge.result != 'success' }}
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+        with:
+          reason: workflow-failed
+          key: agent-pr-merge-failed
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
