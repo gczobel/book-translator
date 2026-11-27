@@ -1,14 +1,15 @@
 name: agent-pr
 
 # Phase 1 of the agent code-PR flow (ticket #25, ADR 0005, "Code PRs from agents"): until the
-# first release a PR written by the Agent App merges by itself once CI, the guard, the hold
-# check and the LLM review have passed. Phase 2 (owner approval on every agent PR) is
+# first release a PR written by the Agent App merges by itself once CI, the guard and the hold
+# check have passed. The LLM review is not required yet (temporary, decided in #25; see
+# LLM_REVIEW_REQUIRED in agentpr/core.py). Phase 2 (owner approval on every agent PR) is
 # first-release work and is not built here.
 #
 # This is NOT the Dependabot/release sweep: it never arms auto-merge and never touches those
 # PRs. The rule lives in .github/scripts/agentpr/core.py (tested). It requires: author is the
 # Agent App's bot ID, head repo is this repo, branch under agent/, no guarded path touched, every
-# required check (guard and llm-review included) last succeeded from GitHub Actions, no `hold`
+# required check (guard included) last succeeded from GitHub Actions, no `hold`
 # label, no owner change request. The pause switch gates every job.
 #
 # `workflow_run` runs this file and its scripts from the default branch, and nothing from a PR

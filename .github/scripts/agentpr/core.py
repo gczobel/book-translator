@@ -1,9 +1,10 @@
 """The merge rule for Agent App pull requests, phase 1 (ADR 0005, "Code PRs from agents").
 
 Pure functions over plain data. Until the first release an agent's PR merges by itself when
-every condition below holds; each one is required, and a fact that is missing or odd blocks
-the merge. The rule never reads PR text (title, body, commit messages): only IDs, names of
-branches and files, labels and check results.
+every condition below holds (the LLM review is not one of them yet: see LLM_REVIEW_REQUIRED).
+Each one is required, and a fact that is missing or odd blocks the merge.
+The rule never reads PR text (title, body, commit messages): only IDs, names of branches and
+files, labels and check results.
 
 Pause is not decided here: the workflow only runs this behind the pause gate.
 """
@@ -23,8 +24,8 @@ BRANCH_PREFIX = "agent/"
 _BRANCH = re.compile(r"agent/[A-Za-z0-9][A-Za-z0-9._/-]*")
 _BAD_PARTS = {"", ".", ".."}
 
-# The ruleset's required checks plus the LLM review. All are aggregator jobs from Actions.
-REQUIRED_CHECKS = (
+# The checks the `main` ruleset requires (a test keeps this equal to .github/rulesets/main.json).
+RULESET_CHECKS = (
     "lint",
     "typecheck",
     "test",
@@ -33,8 +34,21 @@ REQUIRED_CHECKS = (
     "workflow-security",
     "guard",
     "hold",
-    "llm-review",
 )
+
+# TEMPORARY (decided in #25, ADR 0005): the LLM reviewer is not built, so the agent merge rule
+# does not require `llm-review` yet. The `agent-pr-review` placeholder job stays red on agent PRs
+# on purpose: adding `llm-review` as a required check before a real reviewer exists must block,
+# not silently pass. Flip this to True once the reviewer exists (#25 stays open until then).
+LLM_REVIEW_REQUIRED = False
+
+
+def required_checks() -> tuple[str, ...]:
+    """The checks an agent PR needs, all aggregator jobs from GitHub Actions."""
+    return (*RULESET_CHECKS, "llm-review") if LLM_REVIEW_REQUIRED else RULESET_CHECKS
+
+
+REQUIRED_CHECKS = required_checks()
 
 
 @dataclass(frozen=True)
@@ -89,7 +103,7 @@ def _branch_ok(ref: str) -> bool:
 
 def _check_reasons(runs: Sequence[CheckRun]) -> list[str]:
     reasons = []
-    for name in REQUIRED_CHECKS:
+    for name in required_checks():
         # Only Actions' own runs count, and the newest of them decides (a re-run supersedes).
         ours = [r for r in runs if r.name == name and r.app_id == ACTIONS_APP_ID]
         if not ours:

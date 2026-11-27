@@ -17,6 +17,9 @@ GATE_WORKFLOW = "./.github/workflows/pause.yml"
 
 # Workflows that are not unattended automation: PR checks, the pause switch itself, and the
 # escalation job, which only runs on behalf of an automation workflow that already paused.
+# `agent-pr-review` is a PR check whose job must always report (a skipped required check would
+# count as passing). It is still a fail-closed placeholder: the LLM reviewer is not built, and
+# the merge rule does not require `llm-review` yet (decided in #25, ADR 0005).
 # A test also requires that none of them is scheduled or triggered by another workflow.
 EXEMPT_WORKFLOWS = frozenset(
     {"ci", "workflow-security", "guard", "hold", "escalate", "pause", "agent-pr-review"}

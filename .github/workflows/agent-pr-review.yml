@@ -5,7 +5,8 @@ name: agent-pr-review
 # untouched, so it can be a required check for all of them.
 #
 # PLACEHOLDER: the Anthropic-backed reviewer is not built yet. This workflow gives the check no
-# verdict, so every Agent App PR fails it ("no review verdict") and none can auto-merge. What
+# verdict, so every Agent App PR fails it ("no review verdict"). That is deliberate: the merge
+# rule does not require it yet (#25), but making it required before a real reviewer exists must block. What
 # the real reviewer needs is listed in .github/scripts/agentpr/review.py and in the PR notes.
 #
 # `pull_request_target` runs this workflow and its script from the base branch (main), never

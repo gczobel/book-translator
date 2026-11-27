@@ -2,8 +2,9 @@
 
 The reviewer's whole output is one small JSON verdict, and this module is the only reader of
 it. The verdict has two values, `block` and `no-objection`: there is no "approve". Anything
-else, a missing verdict included, fails the check, so an agent PR cannot merge until a
-working reviewer produced `no-objection` for it. The check never posts a review on the PR.
+else, a missing verdict included, fails the check, so once the check is required an
+agent PR cannot merge until a working reviewer produced `no-objection` for it.
+The check never posts a review on the PR.
 
 Phase 1 status: the reviewer itself (the Anthropic call) is not built yet. The workflow gives
 this check no verdict, so every Agent App PR fails here and other PRs pass untouched.

@@ -4,6 +4,7 @@ import dataclasses
 
 import pytest
 
+from agentpr import core
 from agentpr.core import (
     ACTIONS_APP_ID,
     REQUIRED_CHECKS,
@@ -55,10 +56,26 @@ def test_the_happy_path_merges() -> None:
     assert decision.merge, decision.reasons
 
 
-def test_the_required_checks_include_the_llm_review_and_the_ruleset_checks() -> None:
-    for name in ("lint", "typecheck", "test", "e2e", "epubcheck", "workflow-security"):
-        assert name in REQUIRED_CHECKS
-    assert {"guard", "hold", "llm-review"} <= set(REQUIRED_CHECKS)
+def test_the_required_checks_are_the_ruleset_checks_while_the_llm_review_is_off() -> None:
+    assert not core.LLM_REVIEW_REQUIRED
+    assert REQUIRED_CHECKS == core.RULESET_CHECKS
+    assert "llm-review" not in REQUIRED_CHECKS
+    assert {"guard", "hold"} <= set(REQUIRED_CHECKS)
+
+
+def test_a_pr_merges_without_an_llm_review_run_while_it_is_not_required() -> None:
+    assert decide(REPO, _pr(), FILES, _checks()).merge
+
+
+def test_an_llm_review_that_is_required_must_exist_and_succeed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(core, "LLM_REVIEW_REQUIRED", True)
+    assert core.required_checks() == (*core.RULESET_CHECKS, "llm-review")
+    missing = decide(REPO, _pr(), FILES, _checks())
+    assert not missing.merge and "check llm-review: missing" in missing.reasons
+    assert decide(REPO, _pr(), FILES, _checks(**{"llm-review": "success"})).merge
+    assert not decide(REPO, _pr(), FILES, _checks(**{"llm-review": "failure"})).merge
 
 
 @pytest.mark.parametrize(
@@ -124,8 +141,7 @@ def test_a_missing_check_blocks() -> None:
 @pytest.mark.parametrize("conclusion", ["failure", "cancelled", "skipped", "neutral", None])
 def test_a_check_that_did_not_succeed_blocks(conclusion: str | None) -> None:
     checks = [
-        dataclasses.replace(c, conclusion=conclusion) if c.name == "llm-review" else c
-        for c in _checks()
+        dataclasses.replace(c, conclusion=conclusion) if c.name == "guard" else c for c in _checks()
     ]
     assert not decide(REPO, _pr(), FILES, checks).merge
 
@@ -138,9 +154,7 @@ def test_an_unfinished_check_blocks() -> None:
 
 
 def test_a_success_from_another_app_does_not_count() -> None:
-    checks = [
-        dataclasses.replace(c, app_id=123) if c.name == "llm-review" else c for c in _checks()
-    ]
+    checks = [dataclasses.replace(c, app_id=123) if c.name == "guard" else c for c in _checks()]
     assert not decide(REPO, _pr(), FILES, checks).merge
 
 
