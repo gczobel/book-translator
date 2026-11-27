@@ -35,6 +35,17 @@ REASONS: dict[str, tuple[str, str]] = {
         "The PAUSE repository variable could not be read. Automation stops when it can't "
         "tell whether it was paused.",
     ),
+    "vulnerability-found": (
+        "The daily vulnerability scan found something that needs a human",
+        "The OSV scan of uv.lock found a high, critical or unknown-severity issue, a "
+        "malicious-package entry, or an alert older than 48 hours with no open PR. "
+        "The run log lists the packages.",
+    ),
+    "vulnerability-scan-failed": (
+        "The daily vulnerability scan could not run or be read",
+        "The OSV scan of uv.lock failed or its output could not be parsed, so nothing "
+        "vulnerable can be ruled out.",
+    ),
 }
 
 _KEY = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
