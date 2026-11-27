@@ -11,7 +11,12 @@ from book_translator.bible import Bible
 from book_translator.budget import Budget
 from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
-from book_translator.gates import ANALYSIS, skip_analysis_review, write_analysis_review
+from book_translator.gates import (
+    ANALYSIS,
+    skip_analysis_review,
+    write_analysis_review,
+    write_tk_review,
+)
 from book_translator.llm import LLM, Adapter
 from book_translator.search import Search
 from book_translator.stages import draft as drafting
@@ -27,6 +32,7 @@ from book_translator.stages.enrich import (
 )
 from book_translator.stages.extract import Extraction, extraction_request
 from book_translator.stages.research import book_title, research
+from book_translator.tk_gate import TK_GATE
 from book_translator.workspace import DB_NAME, SOURCE_NAME
 
 
@@ -61,6 +67,7 @@ def run(workspace: Path, adapter: Adapter, search: Search | None = None) -> None
         _analysis_gate(db, workspace)
         _draft(db, workspace, llm)
         _tk_resolution(db, workspace, llm)
+        _tk_gate(db, workspace)
     finally:
         db.close()
 
@@ -170,6 +177,15 @@ def _tk_resolution(db: sqlite3.Connection, workspace: Path, llm: LLM) -> None:
     source = open_epub(workspace / SOURCE_NAME)
     resolving.resolve(db, llm, source, bible, STAGE_MODELS["tk_resolution"])
     _set_status(db, "tk_resolution", "done")
+
+
+def _tk_gate(db: sqlite3.Connection, workspace: Path) -> None:
+    """Always stops after TK resolution, even with nothing escalated: it cannot be skipped."""
+    gate = f"{TK_GATE} gate"
+    if _status(db, "tk_resolution") != "done" or _status(db, gate) is not None:
+        return
+    write_tk_review(db, workspace)
+    _set_status(db, gate, "waiting")
 
 
 def _analysis_gate(db: sqlite3.Connection, workspace: Path) -> None:

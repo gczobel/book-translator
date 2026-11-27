@@ -10,6 +10,7 @@ from pathlib import Path
 from book_translator.bible import Bible
 from book_translator.review import Card, read_choices, record_choices, write_review
 from book_translator.review_html import write_html
+from book_translator.tk_gate import TK_GATE, apply_tk, review_content
 from book_translator.workspace import DB_NAME
 
 ANALYSIS = "analysis"
@@ -156,4 +157,9 @@ def approve_waiting_gate(workspace: Path) -> str:
         db.close()
 
 
-APPLIERS = {ANALYSIS: apply_analysis}
+def write_tk_review(db: sqlite3.Connection, workspace: Path) -> None:
+    cards, extra = review_content(db)
+    write_review(db, review_path(workspace, TK_GATE), TK_GATE, cards, extra)
+
+
+APPLIERS = {ANALYSIS: apply_analysis, TK_GATE: apply_tk}

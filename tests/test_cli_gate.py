@@ -80,7 +80,7 @@ def test_approving_without_edits_accepts_every_recommendation_and_run_continues(
     assert recorded == {c["id"]: c["recommended"] for c in cards(ws)}
     main(["run", str(ws)], adapter=adapter())  # passes the gate; nothing is asked again
     assert bible(ws) == expected
-    assert "none waiting" in status(ws, capsys)
+    assert "analysis" not in status(ws, capsys)  # only the TK gate stops the run now
 
 
 def edit(ws: Path, old: str, new: str) -> None:
@@ -199,7 +199,7 @@ def test_the_skip_setting_passes_the_gate_unattended(
 
     main(["run", str(path)], adapter=adapter())
 
-    assert "none waiting" in status(path, capsys)
+    assert "Review gate: tk is waiting" in status(path, capsys)
     assert not (path / REVIEW).exists()
     assert [r["form"] for r in bible(path)["address_grid"]] == ["usted", "tú", "usted"]
 

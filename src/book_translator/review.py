@@ -8,6 +8,7 @@ reader writes their answer under `choice`; an empty choice accepts the recommend
 import json
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel
@@ -29,8 +30,17 @@ class Card(BaseModel):
     choice: str | None = None
 
 
-def write_review(db: sqlite3.Connection, path: Path, gate: str, cards: list[Card]) -> None:
-    """Write the review file and remember the cards so edits can be validated against them."""
+def write_review(
+    db: sqlite3.Connection,
+    path: Path,
+    gate: str,
+    cards: list[Card],
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """Write the review file and remember the cards so edits can be validated against them.
+
+    `extra` adds further top-level sections to the file (read-only for the reader).
+    """
     with db:
         db.execute(
             "create table if not exists review_cards"
@@ -41,7 +51,7 @@ def write_review(db: sqlite3.Connection, path: Path, gate: str, cards: list[Card
             "insert into review_cards values (?, ?, ?, ?)",
             [(gate, c.id, json.dumps(c.options), c.recommended) for c in cards],
         )
-    document = {"gate": gate, "cards": [c.model_dump() for c in cards]}
+    document = {"gate": gate, "cards": [c.model_dump() for c in cards], **(extra or {})}
     path.write_text(yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=100))
     write_html(path)
 

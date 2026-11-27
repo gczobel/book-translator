@@ -82,11 +82,11 @@ def resolve(db: sqlite3.Connection, llm: LLM, source: Epub, bible: Bible, model:
                     "update tks set resolution = ?, resolver = 'auto' where id = ?",
                     (chosen.resolution, row["id"]),
                 )
-                _replace_provisional(db, row["block"], row["provisional"], chosen.resolution)
+                replace_provisional(db, row["block"], row["provisional"], chosen.resolution)
             db.execute("insert into examined_tks values (?)", (row["id"],))
 
 
-def _replace_provisional(
+def replace_provisional(
     db: sqlite3.Connection, block: str, provisional: str, resolution: str
 ) -> None:
     for position, text in db.execute(

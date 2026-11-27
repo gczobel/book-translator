@@ -27,6 +27,10 @@ def write_html(review: Path) -> None:
     document = yaml.safe_load(review.read_text())
     gate = escape(str(document.get("gate", "")))
     body = "".join(_card(c) for c in document.get("cards", []))
+    for name, value in document.items():
+        if name not in ("gate", "cards"):
+            title = escape(name.replace("_", " ").title())
+            body += f"<section><h2>{title}</h2>{_value(value)}</section>"
     page = (
         '<!doctype html><html><head><meta charset="utf-8">'
         f"<title>Review: {gate}</title><style>{_CSS}</style></head><body>"
@@ -34,6 +38,19 @@ def write_html(review: Path) -> None:
         f"{body}</body></html>"
     )
     html_path(review).write_text(page)
+
+
+def _value(value: Any) -> str:
+    """Any YAML value as nested lists, so extra sections and card details show in full."""
+    if isinstance(value, dict):
+        items = "".join(f"<li>{escape(str(k))}: {_value(v)}</li>" for k, v in value.items())
+        return f"<ul>{items}</ul>"
+    if isinstance(value, list):
+        return "<ul>" + "".join(f"<li>{_value(v)}</li>" for v in value) + "</ul>"
+    return escape(str(value))
+
+
+_KNOWN = ("id", "question", "context", "options", "recommended", "why", "choice")
 
 
 def _card(card: dict[str, Any]) -> str:
@@ -45,8 +62,14 @@ def _card(card: dict[str, Any]) -> str:
     )
     choice = card.get("choice")
     chosen = f"<p>Your choice: {escape(str(choice))}</p>" if choice else ""
+    details = "".join(
+        f"<p>{escape(k.replace('_', ' ').title())}: {_value(v)}</p>"
+        for k, v in card.items()
+        if k not in _KNOWN
+    )
     return (
         f"<article><h2>{escape(str(card.get('question', '')))}</h2>"
+        f"{details}"
         f"<p>{escape(str(card.get('context') or ''))}</p>"
         f"<ul>{options}</ul>"
         f'<p>Recommended: <span class="rec">{recommended}</span></p>'
