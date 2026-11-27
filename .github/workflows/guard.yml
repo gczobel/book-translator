@@ -1,0 +1,50 @@
+name: guard
+
+# `pull_request_target` runs the workflow and the guard code from the base branch (main),
+# never from the PR, so a PR cannot change the gate that judges it. The PR's own code is
+# never checked out: the guard reads the PR only through the GitHub API, as data.
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] the PR is never checked out; see above
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Least privilege by default; each job asks for what it needs (ADR 0005).
+permissions: {}
+
+# A new push restarts the check; an old run for the same PR is superseded.
+concurrency:
+  group: guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  run-guard:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # The base branch, by default for this trigger. Never the PR head.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - run: python3 -m guard
+        env:
+          PYTHONPATH: .github/scripts
+          GH_TOKEN: ${{ github.token }}
+          GUARD_REPO: ${{ github.repository }}
+          GUARD_PR: ${{ github.event.pull_request.number }}
+
+  # The required check. Fails unless the guard job succeeded; skipped or cancelled never passes.
+  guard:
+    name: guard
+    needs: [run-guard]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require every upstream job to have succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "upstream results: $RESULTS"
+          [[ -n "$RESULTS" ]] || exit 1
+          for r in $RESULTS; do [[ "$r" == success ]] || exit 1; done

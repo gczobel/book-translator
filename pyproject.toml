@@ -25,14 +25,17 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = [".github/scripts"]
 
 [tool.mypy]
 strict = true
-files = ["src", "tests"]
+files = ["src", "tests", ".github/scripts"]
+mypy_path = ["src", ".github/scripts"]
+explicit_package_bases = true
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+src = ["src", "tests", ".github/scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
