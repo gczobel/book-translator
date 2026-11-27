@@ -5,19 +5,20 @@ agree with it: package metadata, `xml:lang`, chapter titles and notes. Nothing i
 renamed except what is asked for, and an empty `SyncEdits` changes nothing.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from lxml import etree
 
 from book_translator.epub import Epub
+from book_translator.notes import AddedNote, add_notes
 
 _DC = "http://purl.org/dc/elements/1.1/"
 _OPF = "http://www.idpf.org/2007/opf"
 _NCX = "http://www.daisy.org/z3986/2005/ncx/"
 _XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
 
-__all__ = ["SyncEdits", "apply_synchronized_edits"]
+__all__ = ["AddedNote", "SyncEdits", "apply_synchronized_edits"]
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class SyncEdits:
     language: str | None = None
     translator: str | None = None
     chapter_titles: Mapping[str, str] = field(default_factory=dict)  # source label -> target
+    added_notes: Sequence[AddedNote] = ()
 
 
 def apply_synchronized_edits(epub: Epub, edits: SyncEdits) -> None:
@@ -38,6 +40,8 @@ def apply_synchronized_edits(epub: Epub, edits: SyncEdits) -> None:
         _edit_ncx_title(epub, edits.title)
     if edits.chapter_titles:
         _edit_titles(epub, edits.chapter_titles)
+    if edits.added_notes:
+        add_notes(epub, edits.added_notes)
     if edits.language is not None:
         for member in epub.spine():
             tree = etree.ElementTree(etree.fromstring(epub.read(member)))
