@@ -15,7 +15,6 @@ from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
 from book_translator.evaluate import chrf
 from book_translator.evaluate.align import ChapterShape, align_blocks, align_chapters
-from book_translator.evaluate.comet import CometScorer, comet_scores
 from book_translator.evaluate.embed import Embedder
 from book_translator.evaluate.judge import SceneView, judge_scenes
 from book_translator.evaluate.judge import diagnose as diagnose_report
@@ -91,12 +90,10 @@ def evaluate(
     adapter: Adapter | None = None,
     judge: bool = False,
     diagnose: bool = False,
-    comet: CometScorer | None = None,
 ) -> Path:
     """Write the report next to the workspace's database; returns the JSON file.
 
-    `judge` and `diagnose` are the optional LLM parts and need `adapter`; `comet` is an optional
-    COMET scorer.
+    `judge` and `diagnose` are the optional LLM parts and need `adapter`.
     """
     if (judge or diagnose) and adapter is None:
         raise EvaluateError("the judge and the diagnosis need an LLM adapter")
@@ -119,9 +116,7 @@ def evaluate(
         "evaluation_mode": evaluation_mode,
         **scores,
     }
-    views = _scene_views(workspace / SOURCE_NAME, ours, refs) if judge or comet is not None else []
-    if comet is not None:
-        report["comet"] = comet_scores(comet, views)
+    views = _scene_views(workspace / SOURCE_NAME, ours, refs) if judge else []
     llm = LLM(adapter, database, budget=Budget(database)) if adapter is not None else None
     if judge and llm is not None:
         report["judge"] = judge_scenes(llm, STAGE_MODELS["judge"], views)

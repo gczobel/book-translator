@@ -20,7 +20,6 @@ from book_translator.epub import EpubError, open_epub
 from book_translator.epubcheck import EpubcheckNotFoundError
 from book_translator.estimate import estimate
 from book_translator.evaluate import REPORT_MD, EvaluateError, evaluate
-from book_translator.evaluate.comet import CometScorer, CometUnavailableError, UnbabelComet
 from book_translator.evaluate.embed import Embedder, EmbeddingsUnavailableError, LaBSEEmbedder
 from book_translator.export import REPORT_NAME, ExportError, ValidationFailedError, export
 from book_translator.fonts import FontCoverageError
@@ -86,9 +85,6 @@ def _parser() -> argparse.ArgumentParser:
         "--judge", action="store_true", help="LLM judge: errors by type and severity per scene"
     )
     evaluate_cmd.add_argument(
-        "--comet", action="store_true", help="also score with COMET (needs unbabel-comet)"
-    )
-    evaluate_cmd.add_argument(
         "--diagnose", action="store_true", help="LLM diagnosis: likely causes and suggested fixes"
     )
     return parser
@@ -100,7 +96,6 @@ def main(
     adapter: Adapter | None = None,
     search: Search | None = None,
     embedder: Embedder | None = None,
-    comet: CometScorer | None = None,
 ) -> None:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -125,7 +120,7 @@ def main(
     elif args.command == "export":
         _export(args.workspace)
     elif args.command == "evaluate":
-        _evaluate(args, adapter, embedder or LaBSEEmbedder(), comet)
+        _evaluate(args, adapter, embedder or LaBSEEmbedder())
     elif args.command == "status":
         if not (args.workspace / workspace.DB_NAME).is_file():
             sys.exit(f"error: not a workspace: {args.workspace}")
@@ -158,7 +153,6 @@ def _evaluate(
     args: argparse.Namespace,
     adapter: Adapter | None,
     embedder: Embedder,
-    comet: CometScorer | None,
 ) -> None:
     path: Path = args.workspace
     if not (path / workspace.DB_NAME).is_file():
@@ -173,9 +167,8 @@ def _evaluate(
             adapter=adapter,
             judge=args.judge,
             diagnose=args.diagnose,
-            comet=(comet or UnbabelComet()) if args.comet else None,
         )
-    except (EvaluateError, EmbeddingsUnavailableError, CometUnavailableError) as exc:
+    except (EvaluateError, EmbeddingsUnavailableError) as exc:
         sys.exit(f"error: {exc}")
     except CapReachedError as exc:
         sys.exit(f"stopped: {exc}")

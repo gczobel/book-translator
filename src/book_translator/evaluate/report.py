@@ -87,12 +87,6 @@ def render_markdown(report: dict[str, Any]) -> str:
             lines.append(
                 f"- chapter {scene['chapter']}, scene {scene['scene']}: {marks or 'no errors'}"
             )
-    if "comet" in report:
-        comet = report["comet"]
-        lines += ["", "## COMET", "", f"Overall: {comet['overall']}"]
-        lines += [
-            f"- chapter {s['chapter']}, scene {s['scene']}: {s['score']}" for s in comet["scenes"]
-        ]
     if report.get("diagnosis"):
         lines += ["", "## Diagnosis", ""]
         lines += [f"- {d['cause']} (fix: {d['fix']})" for d in report["diagnosis"]]
