@@ -38,9 +38,12 @@ def percentage(value: Any) -> Any:
     return value
 
 
-def in_order(entries: Any, ids: list[str], key: str) -> Any:
+def in_order(entries: Any, ids: list[str], key: str, texts: dict[str, str] | None = None) -> Any:
     """Entries answering each of `ids` exactly once come back in the order of `ids`, strays
-    dropped. Anything else (a gap, a duplicate) is returned as given, for the validators."""
+    dropped. Anything else (a gap, a duplicate) is returned as given, for the validators.
+
+    With `texts` (id -> the text shown for it), entries labelled with that text instead of
+    the id are matched by their text, when every id is then answered exactly once."""
     if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
         return entries
     wanted = set(ids)
@@ -49,7 +52,22 @@ def in_order(entries: Any, ids: list[str], key: str) -> Any:
         for e in entries
         if isinstance(e.get(key), str) and e[key].strip() in wanted
     ]
-    if sorted(e[key] for e in kept) != sorted(ids):
-        return entries
-    by_id = {e[key]: e for e in kept}
-    return [by_id[i] for i in ids]
+    if sorted(e[key] for e in kept) == sorted(ids):
+        by_id = {e[key]: e for e in kept}
+        return [by_id[i] for i in ids]
+    return _by_text(entries, ids, key, texts) if texts else entries
+
+
+def _by_text(entries: list[dict[str, Any]], ids: list[str], key: str, texts: dict[str, str]) -> Any:
+    owners: dict[str, list[str]] = {}
+    for i in ids:
+        owners.setdefault(plain(texts[i]), []).append(i)
+    if any(len(found) > 1 for found in owners.values()):
+        return entries  # two blocks share a text: the label cannot tell them apart
+    by_id: dict[str, dict[str, Any]] = {}
+    for e in entries:
+        label = e.get(key)
+        owner = owners.get(plain(label)) if isinstance(label, str) else None
+        if owner and owner[0] not in by_id:
+            by_id[owner[0]] = {**e, key: owner[0]}
+    return [by_id[i] for i in ids] if set(by_id) == set(ids) else entries
