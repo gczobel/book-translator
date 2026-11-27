@@ -166,6 +166,34 @@ def test_thoughts_follow_the_style_sheet_choice_everywhere(
     assert wrong == {(BLOCK, "thoughts"), (italic, "thoughts")}
 
 
+def test_words_of_the_wrong_spanish_variety_are_reported_by_the_workspace_variety(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+
+    def variety_findings(variety: str, text: str) -> list[str]:
+        tamper(ws, "insert or replace into settings values ('variety', ?)", variety)
+        set_target(ws, BLOCK, text)
+        out = qa(ws, adapter, capsys)
+        found = [f for f in findings(ws) if f == (BLOCK, "variety")]
+        assert bool(found) == ("[variety]" in out)
+        return [line for line in out.splitlines() if "[variety]" in line]
+
+    peninsular = "Cogió el ordenador y vosotros lo visteis mucho."
+    river_plate = "Agarrá la computadora, che, vos tenés que ir al laburo."
+    american = "Tomó la computadora y el celular, platicó con todos ahorita."
+
+    neutral = variety_findings("neutral", peninsular)
+    assert all(w in " ".join(neutral) for w in ("cogió", "ordenador", "vosotros"))
+    assert variety_findings("peninsular", peninsular) == []
+    assert variety_findings("neutral", river_plate) != []
+    assert variety_findings("rioplatense", river_plate) == []
+    assert variety_findings("rioplatense", peninsular) != []
+    assert variety_findings("peninsular", american) != []
+    assert variety_findings("neutral", american) == []
+    assert variety_findings("rioplatense", american) != []
+
+
 def test_months_and_days_are_lowercase_inside_a_sentence_but_not_names_or_sentence_starts(
     book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
 ) -> None:

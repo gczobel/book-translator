@@ -7,7 +7,10 @@ units of work there too, so a second run does only what is left.
 import sqlite3
 from pathlib import Path
 
-from book_translator import typography
+from book_translator import (
+    lexicon,  # noqa: F401  (registers the variety QA check)
+    typography,
+)
 from book_translator.bible import Bible
 from book_translator.budget import Budget
 from book_translator.config import STAGE_MODELS
