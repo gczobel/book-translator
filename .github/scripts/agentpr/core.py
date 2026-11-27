@@ -14,9 +14,10 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from ghapi.identities import AGENT_BOT_ID
+from ghapi.labels import is_on_hold
 from guard.rules import is_guarded_path
 
-AGENT_BOT_ID = 361973881  # the Agent App's bot user (App ID 5952762); never matched by login
 ACTIONS_APP_ID = 15368  # GitHub Actions: the only source the required checks are trusted from
 BRANCH_PREFIX = "agent/"
 _BRANCH = re.compile(r"agent/[A-Za-z0-9][A-Za-z0-9._/-]*")
@@ -65,7 +66,7 @@ class CheckRun:
 
 
 @dataclass(frozen=True)
-class Decision:
+class MergeDecision:
     merge: bool
     reasons: tuple[str, ...] = ()  # fixed wording only, never PR-controlled text
 
@@ -105,7 +106,7 @@ def decide(
     pr: PullFacts,
     paths: Sequence[str],
     checks: Sequence[CheckRun],
-) -> Decision:
+) -> MergeDecision:
     """May this PR merge now? `paths` holds every changed path, and every rename source."""
     reasons: list[str] = []
     if not is_agent_pr(repo, pr):
@@ -116,11 +117,11 @@ def decide(
         reasons.append("not an open, ready pull request")
     if pr.base_ref != pr.default_branch:
         reasons.append("does not target the default branch")
-    if any(label.casefold() == "hold" for label in pr.labels):
+    if is_on_hold(pr.labels):
         reasons.append("on hold")
     if pr.owner_review_states and pr.owner_review_states[-1] == "CHANGES_REQUESTED":
         reasons.append("the owner requested changes")
     if any(is_guarded_path(p) for p in paths):
         reasons.append("touches a guarded path or a malformed path: needs the owner")
     reasons += _check_reasons(checks)
-    return Decision(merge=not reasons, reasons=tuple(reasons))
+    return MergeDecision(merge=not reasons, reasons=tuple(reasons))

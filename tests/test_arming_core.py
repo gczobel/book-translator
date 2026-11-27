@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from arming.core import Decision, LabelEvent, Pull, evaluate
+from arming.core import ArmDecision, LabelEvent, Pull, evaluate
 from ghapi.identities import DEPENDABOT_ID, MAINT_BOT_ID, OWNER_ID
 
 REPO = "o/r"
@@ -29,7 +29,7 @@ def pull(**changes: Any) -> Pull:
     return replace(base, **changes)
 
 
-def decide(p: Pull, events: list[LabelEvent] | None = None) -> Decision:
+def decide(p: Pull, events: list[LabelEvent] | None = None) -> ArmDecision:
     return evaluate(p, REPO, "main", events or [])
 
 

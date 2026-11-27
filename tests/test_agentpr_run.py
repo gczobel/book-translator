@@ -7,9 +7,9 @@ import pytest
 
 from agentpr import collect
 from agentpr.collect import AgentPrError
-from agentpr.core import ACTIONS_APP_ID, AGENT_BOT_ID, REQUIRED_CHECKS
+from agentpr.core import ACTIONS_APP_ID, REQUIRED_CHECKS
 from agentpr.run import run
-from ghapi.identities import OWNER_ID
+from ghapi.identities import AGENT_BOT_ID, OWNER_ID
 
 REPO = "o/r"
 SHA = "1" * 40

@@ -6,9 +6,8 @@ from typing import Any
 
 import pytest
 
-from agentpr.core import AGENT_BOT_ID
 from agentpr.review import ReviewError, outcome, parse_verdict, run
-from ghapi.identities import OWNER_ID
+from ghapi.identities import AGENT_BOT_ID, OWNER_ID
 
 REPO = "o/r"
 

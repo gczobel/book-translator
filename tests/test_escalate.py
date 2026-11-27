@@ -7,9 +7,10 @@ import pytest
 from escalate import core
 from escalate.core import EscalationError, Request, escalate, parse_request
 from escalate.run import run
+from ghapi.identities import MAINT_BOT_ID
 
 REPO = "o/r"
-BOT = core.MAINT_BOT_ID
+BOT = MAINT_BOT_ID
 MARKER = "<!-- book-translator-escalation:{key} -->"
 
 

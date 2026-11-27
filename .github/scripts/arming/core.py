@@ -17,6 +17,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from ghapi.identities import DEPENDABOT_ID, MAINT_BOT_ID, OWNER_ID
+from ghapi.labels import is_on_hold
 
 # author ID -> head-branch prefix that author may use
 ARMABLE_AUTHORS: dict[int, str] = {
@@ -24,7 +25,6 @@ ARMABLE_AUTHORS: dict[int, str] = {
     MAINT_BOT_ID: "release-please--",
 }
 
-HOLD = "hold"
 URGENT = "urgent"
 SECURITY = "security"
 
@@ -52,7 +52,7 @@ class LabelEvent:
 
 
 @dataclass(frozen=True)
-class Decision:
+class ArmDecision:
     arm: bool
     reason: str
     security: bool = False
@@ -73,7 +73,9 @@ def _applied_by(events: Iterable[LabelEvent], label: str, allowed: set[int]) -> 
     )
 
 
-def evaluate(pull: Pull, repo: str, default_branch: str, events: Iterable[LabelEvent]) -> Decision:
+def evaluate(
+    pull: Pull, repo: str, default_branch: str, events: Iterable[LabelEvent]
+) -> ArmDecision:
     """Whether `pull` may be armed, and the policy inputs for the age gate.
 
     `security` is honoured only if Dependabot itself applied the label and `urgent` only if the
@@ -81,20 +83,20 @@ def evaluate(pull: Pull, repo: str, default_branch: str, events: Iterable[LabelE
     """
     prefix = ARMABLE_AUTHORS.get(pull.author_id)
     if prefix is None:
-        return Decision(False, "author is not Dependabot or the maintenance App")
+        return ArmDecision(False, "author is not Dependabot or the maintenance App")
     if not pull.head_ref.startswith(prefix):
-        return Decision(False, "head branch does not match the author")
+        return ArmDecision(False, "head branch does not match the author")
     if pull.head_repo != repo or pull.base_repo != repo:
-        return Decision(False, "head or base repository is not this repository")
+        return ArmDecision(False, "head or base repository is not this repository")
     if pull.base_ref != default_branch:
-        return Decision(False, "base branch is not the default branch")
+        return ArmDecision(False, "base branch is not the default branch")
     if pull.state != "open":
-        return Decision(False, "not open")
+        return ArmDecision(False, "not open")
     if pull.armed:
-        return Decision(False, "already armed")
-    if HOLD in pull.labels:
-        return Decision(False, "on hold")
+        return ArmDecision(False, "already armed")
+    if is_on_hold(pull.labels):
+        return ArmDecision(False, "on hold")
     events = list(events)
     security = SECURITY in pull.labels and _applied_by(events, SECURITY, {DEPENDABOT_ID})
     urgent = URGENT in pull.labels and _applied_by(events, URGENT, {OWNER_ID})
-    return Decision(True, "qualifies", security=security, urgent=urgent)
+    return ArmDecision(True, "qualifies", security=security, urgent=urgent)

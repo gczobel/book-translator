@@ -20,7 +20,7 @@ from agentpr.collect import AgentPrError, Api
 from agentpr.core import is_agent_pr
 from ghapi.client import ApiError, HttpApi
 
-Decision = Literal["block", "no-objection"]
+Verdict = Literal["block", "no-objection"]
 _MAX_REASONS = 20
 _MAX_REASON_CHARS = 500
 
@@ -29,7 +29,7 @@ class ReviewError(Exception):
     """The verdict is missing, malformed or says something this check doesn't accept."""
 
 
-def parse_verdict(text: str) -> tuple[Decision, list[str]]:
+def parse_verdict(text: str) -> tuple[Verdict, list[str]]:
     """The decision and reasons from the reviewer's JSON, or ReviewError."""
     try:
         data = json.loads(text)
