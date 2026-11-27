@@ -43,6 +43,21 @@ REASONS: dict[str, tuple[str, str]] = {
         "malicious-package entry, or an alert older than 48 hours with no open PR. "
         "The run log lists the packages.",
     ),
+    "repair-attempts-exhausted": (
+        "A red dependency or release PR was not fixed after the allowed attempts",
+        "The repair workflow already made its maximum number of repair commits on the PR "
+        "branch and CI is still failing, so the PR needs a human.",
+    ),
+    "repair-agent-failed": (
+        "The repair agent could not produce a fix for a red PR",
+        "The repair agent job failed or was cancelled (an API outage, an exhausted Anthropic "
+        "budget, an unusable result or a missing egress limit), so no fix was attempted.",
+    ),
+    "repair-rejected": (
+        "A proposed repair was rejected by the validator",
+        "The patch the repair agent produced broke the repair rules (allowed paths, the "
+        "test-ID ratchet, new dependency names) or could not be judged, so it was not pushed.",
+    ),
     "vulnerability-scan-failed": (
         "The daily vulnerability scan could not run or be read",
         "The OSV scan of uv.lock failed or its output could not be parsed, so nothing "
