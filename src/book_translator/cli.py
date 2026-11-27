@@ -18,6 +18,8 @@ from book_translator.config import (
 from book_translator.epub import open_epub
 from book_translator.epubcheck import EpubcheckNotFoundError
 from book_translator.estimate import estimate
+from book_translator.evaluate import REPORT_MD, EvaluateError, evaluate
+from book_translator.evaluate.embed import Embedder, EmbeddingsUnavailableError, LaBSEEmbedder
 from book_translator.export import REPORT_NAME, ExportError, ValidationFailedError, export
 from book_translator.fonts import FontCoverageError
 from book_translator.gates import GateError, approve_waiting_gate
@@ -73,6 +75,11 @@ def _parser() -> argparse.ArgumentParser:
     approve_cmd.add_argument("workspace", type=Path)
     export_cmd = sub.add_parser("export", help="build the translated EPUB and validate it")
     export_cmd.add_argument("workspace", type=Path)
+    evaluate_cmd = sub.add_parser(
+        "evaluate", help="compare the exported EPUB with a reference translation"
+    )
+    evaluate_cmd.add_argument("workspace", type=Path)
+    evaluate_cmd.add_argument("--reference", type=Path, required=True, help="reference EPUB")
     return parser
 
 
@@ -81,6 +88,7 @@ def main(
     *,
     adapter: Adapter | None = None,
     search: Search | None = None,
+    embedder: Embedder | None = None,
 ) -> None:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -102,6 +110,8 @@ def main(
         _approve(args.workspace)
     elif args.command == "export":
         _export(args.workspace)
+    elif args.command == "evaluate":
+        _evaluate(args.workspace, args.reference, embedder or LaBSEEmbedder())
     elif args.command == "status":
         if not (args.workspace / workspace.DB_NAME).is_file():
             sys.exit(f"error: not a workspace: {args.workspace}")
@@ -121,6 +131,16 @@ def _export(path: Path) -> None:
     except (ExportError, EpubcheckNotFoundError, FontCoverageError, InlineCodeError) as exc:
         sys.exit(f"error: {exc}")
     print(f"Exported: {out}\nepubcheck report: {path / REPORT_NAME}")
+
+
+def _evaluate(path: Path, reference: Path, embedder: Embedder) -> None:
+    if not (path / workspace.DB_NAME).is_file():
+        sys.exit(f"error: not a workspace: {path}")
+    try:
+        out = evaluate(path, reference, embedder)
+    except (EvaluateError, EmbeddingsUnavailableError) as exc:
+        sys.exit(f"error: {exc}")
+    print(f"Quality report: {out}\nReadable copy: {path / REPORT_MD}")
 
 
 def _production_adapter() -> Adapter:
