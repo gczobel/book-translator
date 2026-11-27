@@ -43,7 +43,79 @@ class VoiceCard(BaseModel):
     sample_lines: list[str] = []
 
 
-class Bible(BaseModel):
+class AddressRule(BaseModel):
+    """How one character addresses another (directed), over a range of chapters (1-based,
+    inclusive, open-ended when absent)."""
+
+    speaker: str
+    addressee: str
+    form: Literal["tú", "usted"]
+    from_chapter: int | None = None
+    to_chapter: int | None = None
+
+    @model_validator(mode="after")
+    def _range_runs_forwards(self) -> Self:
+        if (
+            self.from_chapter is not None
+            and self.to_chapter is not None
+            and self.from_chapter > self.to_chapter
+        ):
+            raise ValueError(f"chapter range {self.from_chapter}-{self.to_chapter} runs backwards")
+        return self
+
+
+class GlossaryEntry(BaseModel):
+    term: str
+    rendering: str
+    banned_variants: list[str] = []
+    context_rule: str = ""
+    origin: Literal["extracted", "researched", "established"]
+
+
+class Motif(BaseModel):
+    name: str
+    locked_rendering: str
+    description: str = ""
+
+
+class ChapterSummary(BaseModel):
+    chapter: int  # 1-based
+    summary: str
+
+
+class TimelineEvent(BaseModel):
+    when: str
+    event: str
+    chapter: int | None = None
+
+
+class Crux(BaseModel):
+    """A passage predicted to need a decision: where the translation is likely to get stuck."""
+
+    type: Literal["pun", "lyrics", "quotation", "dialect"]
+    location: str
+    note: str = ""
+
+
+class Part2(BaseModel):
+    """The second half of the bible, written once part 1 is known."""
+
+    address_grid: list[AddressRule] = []
+    glossary: list[GlossaryEntry] = []
+    motifs: list[Motif] = []
+    summaries: list[ChapterSummary] = []
+    timeline: list[TimelineEvent] = []
+    cruxes: list[Crux] = []
+
+    def check_against_cast(self, names: set[str]) -> None:
+        unknown = sorted(
+            {n for r in self.address_grid for n in (r.speaker, r.addressee) if n not in names}
+        )
+        if unknown:
+            raise ValueError(f"address rules for characters outside the cast: {unknown}")
+
+
+class Bible(Part2):
     profile: Profile
     style: StyleSheet
     cast: list[CastMember]
@@ -55,4 +127,5 @@ class Bible(BaseModel):
         unknown = [v.character for v in self.voice_cards if v.character not in names]
         if unknown:
             raise ValueError(f"voice cards for characters outside the cast: {unknown}")
+        self.check_against_cast(names)
         return self

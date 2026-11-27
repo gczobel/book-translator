@@ -52,6 +52,8 @@ class CountingAdapter:
         if self._fail_after is not None and self.calls >= self._fail_after:
             raise KeyboardInterrupt
         self.calls += 1
+        if request.stage == "completion":
+            return RawAnswer("{}")
         if request.stage == "consolidation":
             return RawAnswer(BIBLE)
         return self._replay.complete(request, key, attempt)
@@ -105,7 +107,7 @@ def test_status_of_a_finished_run_shows_spend(
     main(["run", str(workspace)], adapter=CountingAdapter(recordings(PLAIN)))
     Budget(workspace / "book.sqlite").record("extraction", 1.25)
     out = status(workspace, capsys)
-    assert "Stage: consolidation (done)" in out
+    assert "Stage: completion (done)" in out
     assert "Progress: 2 of 2 chapters extracted" in out
     assert "Spent: $1.25 of $5.00 cap" in out
     assert "Next: nothing left to run" in out

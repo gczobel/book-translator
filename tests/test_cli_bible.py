@@ -79,6 +79,8 @@ class BibleAdapter:
         if self._fail_after is not None and self.calls >= self._fail_after:
             raise KeyboardInterrupt
         self.calls += 1
+        if request.stage == "completion":
+            return RawAnswer("{}")  # part 2 is covered in test_cli_bible_part2.py
         if request.stage != "consolidation":
             return self._replay.complete(request, key, attempt)
         self.requests.append(request)
@@ -169,7 +171,7 @@ def test_an_interrupted_consolidation_resumes_without_repeating_calls(ws: Path) 
 
     second = BibleAdapter([json.dumps(bible())])
     main(["run", str(ws)], adapter=second)
-    assert second.calls == 1
+    assert second.calls == 2  # consolidation, then completion
 
     third = BibleAdapter([])
     main(["run", str(ws)], adapter=third)
