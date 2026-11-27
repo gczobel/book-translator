@@ -1,5 +1,6 @@
 """Seam 1: the CLI. `status` observed through its output; it changes nothing."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,30 @@ from book_translator.stages.extract import extraction_request
 PLAIN = Path(__file__).parent / "fixtures" / "epub" / "plain.epub"
 
 
+BIBLE = json.dumps(
+    {
+        "profile": {
+            "genre": "comedy",
+            "period": "1880s",
+            "setting": "a house",
+            "narrator": "third person",
+            "narrator_distance": "close",
+            "tense": "past",
+            "narrative_register": "wry",
+            "foreignness": "light",
+        },
+        "style": {
+            "dialogue": "inline-quotes",
+            "thoughts": "italics",
+            "numbers": "words",
+            "titles": "keep",
+        },
+        "cast": [{"name": "Hiram", "aliases": [], "gender": "male", "role": "owner"}],
+        "voice_cards": [],
+    }
+)
+
+
 class CountingAdapter:
     """A replay adapter that can be interrupted after a number of calls."""
 
@@ -27,6 +52,8 @@ class CountingAdapter:
         if self._fail_after is not None and self.calls >= self._fail_after:
             raise KeyboardInterrupt
         self.calls += 1
+        if request.stage == "consolidation":
+            return RawAnswer(BIBLE)
         return self._replay.complete(request, key, attempt)
 
 
@@ -78,7 +105,7 @@ def test_status_of_a_finished_run_shows_spend(
     main(["run", str(workspace)], adapter=CountingAdapter(recordings(PLAIN)))
     Budget(workspace / "book.sqlite").record("extraction", 1.25)
     out = status(workspace, capsys)
-    assert "Stage: extraction (done)" in out
+    assert "Stage: consolidation (done)" in out
     assert "Progress: 2 of 2 chapters extracted" in out
     assert "Spent: $1.25 of $5.00 cap" in out
     assert "Next: nothing left to run" in out
