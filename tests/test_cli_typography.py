@@ -59,3 +59,22 @@ def test_unpaired_quotes_are_flagged_unless_the_next_paragraph_continues_them(
     set_target(ws, source_ids()[2], "»Y así termina lo dicho.")
     qa(ws, adapter, capsys)
     assert (BLOCK, "quotes") not in findings(ws)  # Q6: the next paragraph opens with »
+
+
+def test_raya_is_set_as_a_dialogue_dash_with_glued_incisos_and_no_closing_raya_at_the_end(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+    cases = [
+        ("-¿Qué fue eso? - preguntó Beregond.", "—¿Qué fue eso? —preguntó Beregond."),  # D1, D2
+        ("— Está bien, —dijo Carlos—, lo haré.", "—Está bien —dijo Carlos—, lo haré."),  # D4
+        ("Era viejo—muy viejo—y estaba cansado.", "Era viejo —muy viejo— y estaba cansado."),  # D8
+        ("—¿Qué fue eso? —preguntó Beregond—", "—¿Qué fue eso? —preguntó Beregond."),  # D3
+        ("Sus rayas son muy —muy largas.", "Sus rayas son muy —muy largas."),  # unpaired
+    ]
+    for text, expected in cases:
+        assert normalised(ws, text, adapter, capsys) == expected
+        assert normalised(ws, expected, adapter, capsys) == expected  # idempotent
+    assert (BLOCK, "raya") in findings(ws)  # only the last case cannot be settled
+    assert normalised(ws, cases[0][1], adapter, capsys) == cases[0][1]
+    assert (BLOCK, "raya") not in findings(ws)

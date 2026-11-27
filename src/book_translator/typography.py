@@ -109,7 +109,67 @@ def quote_pairing(context: QAContext) -> list[Finding]:
     return found
 
 
-RULES: list[tuple[str, Callable[[str], str]]] = [("quotes", quotes)]
+RAYA = "\u2014"
+_DASHES = "\u2013\u2015\u2014-"
+_SPEECH_DASH = re.compile(rf"^\s*[{_DASHES}]+\s*(?=[^\s\d{_DASHES}])")
+_DASH_AS_RAYA = re.compile(
+    r"\s+[-\u2013\u2015]+\s+|--+|\u2015|(?<!\d)\u2013|\u2013(?!\d)"  # spaced hyphen, --, ―, –
+)
+_NEXT_WORD = re.compile(r"[^\W_]|[\u00bf\u00a1\u00ab\u201c\u2018(\ue000\ue002]")
+_LOWER = "a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1\u00fc"
+
+
+def _is_dialogue(text: str) -> bool:
+    return _SPEECH_DASH.match(text) is not None
+
+
+def raya(text: str) -> str:
+    """D1-D4, D8 (3.2, 3.3): a leading dash opens the speech with a raya glued to its first word;
+    a dash used as a raya (--, –, ―, spaced hyphen) becomes —; incisos are paired, the opening
+    raya spaced before and glued after, the closing one glued before. In a speech, a comma before
+    an inciso goes (D4) and a closing raya ending the paragraph goes (D3). An odd number of
+    rayas outside a speech has no safe reading and is left for the `raya` check."""
+    dialogue = _is_dialogue(text)
+    body = _SPEECH_DASH.sub("", text, count=1) if dialogue else text
+    body = _DASH_AS_RAYA.sub(RAYA, body)
+    count = body.count(RAYA)
+    if count % 2 and not dialogue:
+        return text
+    pieces = body.split(RAYA)
+    out = pieces[0]
+    for index, piece in enumerate(pieces[1:]):
+        if index % 2 == 0:  # an opening raya: spaced before, glued after
+            out = out.rstrip()
+            if dialogue and re.match(rf"[{_LOWER}]", piece.lstrip()):
+                out = out.removesuffix(",").removesuffix(";")  # D4
+            out += ("" if not out or out[-1] in "([\u00ab\u201c" else " ") + RAYA + piece.lstrip()
+        else:  # a closing raya: glued before, a space after unless a sign or the end follows
+            rest = piece.lstrip()
+            out = out.rstrip() + RAYA + (" " if _NEXT_WORD.match(rest) else "") + rest
+    if dialogue and count and count % 2 == 0 and out.endswith(RAYA):  # D3
+        out = out.removesuffix(RAYA)
+        out += "" if out[-1:] in ".?!\u2026" else "."
+    return (RAYA if dialogue else "") + out
+
+
+@check("raya")
+def raya_layout(context: QAContext) -> list[Finding]:
+    """What the normaliser could not settle: a dash that is not a raya, rayas that do not pair up
+    outside a speech (D8), a paragraph ending in a raya (D3), or a layout still off (D1-D4)."""
+    found = []
+    for block, texts in context.targets.items():
+        for text in (mask(t)[0] for t in texts):
+            body = _SPEECH_DASH.sub("", text, count=1) if _is_dialogue(text) else text
+            if _DASH_AS_RAYA.search(body) or (body.count(RAYA) % 2 and not _is_dialogue(text)):
+                found.append(Finding("raya", block, "its rayas do not pair up as incisos (D8)"))
+            elif text.endswith(RAYA):
+                found.append(Finding("raya", block, "it ends in a raya (D3)"))
+            elif raya(text) != text:
+                found.append(Finding("raya", block, "its rayas are not laid out as D1-D4 ask"))
+    return found
+
+
+RULES: list[tuple[str, Callable[[str], str]]] = [("quotes", quotes), ("raya", raya)]
 
 
 def normalise(text: str) -> list[tuple[str, str, str]]:
