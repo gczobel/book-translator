@@ -7,6 +7,7 @@ units of work there too, so a second run does only what is left.
 import sqlite3
 from pathlib import Path
 
+from book_translator import typography
 from book_translator.bible import Bible
 from book_translator.budget import Budget
 from book_translator.config import STAGE_MODELS
@@ -76,6 +77,7 @@ def run(workspace: Path, adapter: Adapter, search: Search | None = None) -> None
         _fidelity(db, workspace, llm)
         _polish(db, workspace, llm)
         _post_polish_fidelity(db, workspace, llm)
+        _typography(db, workspace)
         _qa(db, workspace)
     finally:
         db.close()
@@ -225,9 +227,20 @@ def _post_polish_fidelity(db: sqlite3.Connection, workspace: Path, llm: LLM) -> 
     _set_status(db, stage, "done")
 
 
+def _typography(db: sqlite3.Connection, workspace: Path) -> None:
+    """Deterministic and idempotent, so it runs again every time, just before QA."""
+    if _status(db, post_polish.STAGE) != "done":
+        return
+    with db:
+        typography.create_tables(db)
+    bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
+    typography.apply(db, open_epub(workspace / SOURCE_NAME), bible)
+    _set_status(db, typography.STAGE, "done")
+
+
 def _qa(db: sqlite3.Connection, workspace: Path) -> None:
     """Deterministic, so it runs again every time: the stored targets may have changed."""
-    if _status(db, post_polish.STAGE) != "done":
+    if _status(db, typography.STAGE) != "done":
         return
     bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
     found = run_qa(db, open_epub(workspace / SOURCE_NAME), bible)
