@@ -67,6 +67,8 @@ def run(env: Mapping[str, str], api: Api | None = None, now: datetime | None = N
             out.write(
                 f"vulnerable={str(verdict.vulnerable).lower()}\n"
                 f"scan_failed={str(verdict.scan_failed).lower()}\n"
+                # Positive form for the workflow: empty (job crashed or cancelled) is not 'true'.
+                f"scan_ok={str(not verdict.scan_failed).lower()}\n"
             )
     except OSError:
         print("osvscan: cannot write the step outputs")

@@ -227,14 +227,14 @@ def outputs(env: dict[str, str]) -> dict[str, str]:
 def test_run_publishes_the_verdict(tmp_path: Path) -> None:
     env = env_for(tmp_path, osv(max_severity="9.8"))
     assert run(env, FakePulls(), NOW) == 0
-    assert outputs(env) == {"vulnerable": "true", "scan_failed": "false"}
+    assert outputs(env) == {"vulnerable": "true", "scan_failed": "false", "scan_ok": "true"}
 
 
 def test_run_uses_open_dependabot_prs(tmp_path: Path) -> None:
     env = env_for(tmp_path, osv(vulns=[vuln(published=OLD)]))
     api = FakePulls([github_pr("dependabot/uv/requests-2.0")])
     assert run(env, api, NOW) == 0
-    assert outputs(env) == {"vulnerable": "false", "scan_failed": "false"}
+    assert outputs(env) == {"vulnerable": "false", "scan_failed": "false", "scan_ok": "true"}
 
 
 def test_run_tolerates_prs_from_deleted_forks(tmp_path: Path) -> None:
@@ -253,7 +253,7 @@ def test_run_reports_a_missing_scan_file_as_a_failed_scan(tmp_path: Path) -> Non
     env = env_for(tmp_path, "", exit_code="127")
     Path(env["OSV_OUTPUT_FILE"]).unlink()
     assert run(env, FakePulls(), NOW) == 0
-    assert outputs(env) == {"vulnerable": "false", "scan_failed": "true"}
+    assert outputs(env) == {"vulnerable": "false", "scan_failed": "true", "scan_ok": "false"}
 
 
 def test_run_fails_loudly_without_an_exit_code(tmp_path: Path) -> None:
