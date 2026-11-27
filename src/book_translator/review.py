@@ -44,13 +44,63 @@ def write_review(db: sqlite3.Connection, path: Path, gate: str, cards: list[Card
 
 
 def read_choices(db: sqlite3.Connection, path: Path, gate: str) -> dict[str, str]:
-    """The reader's choice for every card; an empty choice is the recommendation."""
-    expected = {
-        row[0]: row[1]
-        for row in db.execute("select id, recommended from review_cards where gate = ?", (gate,))
+    """The reader's choice for every card; an empty choice is the recommendation.
+
+    Raises ReviewError, naming the line, for malformed YAML, an unknown or repeated card id, or a
+    choice that is not one of the card's options.
+    """
+    cards = {
+        row[0]: (json.loads(row[1]), row[2])
+        for row in db.execute(
+            "select id, options, recommended from review_cards where gate = ?", (gate,)
+        )
     }
-    edited = {c["id"]: c.get("choice") for c in yaml.safe_load(path.read_text())["cards"]}
-    return {id_: str(edited.get(id_) or rec) for id_, rec in expected.items()}
+    choices = {id_: recommended for id_, (_, recommended) in cards.items()}
+    seen: set[str] = set()
+    for card in _card_nodes(path):
+        fields = {k.value: v for k, v in card.value if isinstance(k, yaml.ScalarNode)}
+        id_node = fields.get("id")
+        if not isinstance(id_node, yaml.ScalarNode) or id_node.value not in cards:
+            at = id_node or card
+            name = id_node.value if isinstance(id_node, yaml.ScalarNode) else "(missing)"
+            raise _error(path, at, f"unknown card id {name!r}")
+        id_ = id_node.value
+        if id_ in seen:
+            raise _error(path, id_node, f"card id {id_!r} appears twice")
+        seen.add(id_)
+        choice = fields.get("choice")
+        if choice is None or (isinstance(choice, yaml.ScalarNode) and choice.tag.endswith(":null")):
+            continue
+        options = cards[id_][0]
+        if not isinstance(choice, yaml.ScalarNode) or choice.value not in options:
+            raise _error(path, choice, f"card {id_!r}: choice must be one of: {', '.join(options)}")
+        choices[id_] = choice.value
+    return choices
+
+
+def _error(path: Path, node: yaml.Node, message: str) -> ReviewError:
+    return ReviewError(f"{path.name}: line {node.start_mark.line + 1}: {message}")
+
+
+def _card_nodes(path: Path) -> list[yaml.MappingNode]:
+    try:
+        root = yaml.compose(path.read_text())
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        where = f"line {mark.line + 1}: " if mark else ""
+        raise ReviewError(f"{path.name}: {where}{getattr(exc, 'problem', None) or exc}") from exc
+    cards = None
+    if isinstance(root, yaml.MappingNode):
+        cards = next(
+            (v for k, v in root.value if isinstance(k, yaml.ScalarNode) and k.value == "cards"),
+            None,
+        )
+    if not isinstance(cards, yaml.SequenceNode):
+        raise ReviewError(f"{path.name}: line 1: expected a 'cards' list")
+    for card in cards.value:
+        if not isinstance(card, yaml.MappingNode):
+            raise _error(path, card, "each card must be a mapping")
+    return [c for c in cards.value if isinstance(c, yaml.MappingNode)]
 
 
 def record_choices(db: sqlite3.Connection, gate: str, choices: dict[str, str]) -> None:

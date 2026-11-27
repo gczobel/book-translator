@@ -55,14 +55,76 @@ def analysis_cards(bible: Bible, variety: str) -> list[Card]:
                 why="Inferred from the relationship and the register of their scenes.",
             )
         )
+    for n, entry in enumerate(bible.glossary, 1):
+        names = entry.origin == "established"
+        cards.append(
+            Card(
+                id=f"{'name' if names else 'glossary'}-{n}",
+                question=f"How is {entry.term!r} rendered?",
+                context=entry.source or entry.context_rule,
+                options=[entry.rendering, entry.term]
+                if entry.rendering != entry.term
+                else [entry.rendering],
+                recommended=entry.rendering,
+                why=(
+                    "The usual Spanish form, found in a source."
+                    if names
+                    else "The analysis settled on this; the other option keeps the original."
+                ),
+            )
+        )
+    for n, motif in enumerate(bible.motifs, 1):
+        cards.append(
+            Card(
+                id=f"motif-{n}",
+                question=f"How is the motif {motif.name!r} rendered wherever it recurs?",
+                context=motif.description,
+                options=sorted({motif.locked_rendering, motif.name}),
+                recommended=motif.locked_rendering,
+                why="Locked so that the motif reads the same each time it returns.",
+            )
+        )
     return cards
 
 
-def write_analysis_review(db: sqlite3.Connection, workspace: Path) -> None:
+def _stored_analysis_cards(db: sqlite3.Connection) -> list[Card]:
     bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
     row = db.execute("select value from settings where key = 'variety'").fetchone()
-    cards = analysis_cards(bible, str(row[0]) if row else "neutral")
+    return analysis_cards(bible, str(row[0]) if row else "neutral")
+
+
+def write_analysis_review(db: sqlite3.Connection, workspace: Path) -> None:
+    cards = _stored_analysis_cards(db)
     write_review(db, review_path(workspace, ANALYSIS), ANALYSIS, cards)
+
+
+def skip_analysis_review(db: sqlite3.Connection) -> None:
+    """Unattended run: take every recommendation without writing a review file."""
+    choices = {c.id: c.recommended for c in _stored_analysis_cards(db)}
+    record_choices(db, ANALYSIS, choices)
+    apply_analysis(db, choices)
+
+
+def apply_analysis(db: sqlite3.Connection, choices: dict[str, str]) -> None:
+    """Make the recorded choices the bible's and the workspace's own, for later stages."""
+    bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
+    style = bible.style
+    style.dialogue = choices.get("dialogue", style.dialogue)  # type: ignore[assignment]
+    style.thoughts = choices.get("thoughts", style.thoughts)
+    for n, rule in enumerate(bible.address_grid, 1):
+        rule.form = choices.get(f"address-{n}", rule.form)  # type: ignore[assignment]
+    for n, entry in enumerate(bible.glossary, 1):
+        prefix = "name" if entry.origin == "established" else "glossary"
+        entry.rendering = choices.get(f"{prefix}-{n}", entry.rendering)
+    for n, motif in enumerate(bible.motifs, 1):
+        motif.locked_rendering = choices.get(f"motif-{n}", motif.locked_rendering)
+    with db:
+        db.execute("delete from bible")
+        db.execute("insert into bible values (?)", (bible.model_dump_json(),))
+        if "variety" in choices:
+            db.execute(
+                "insert or replace into settings values ('variety', ?)", (choices["variety"],)
+            )
 
 
 class GateError(Exception):
@@ -74,15 +136,22 @@ def approve_waiting_gate(workspace: Path) -> str:
     db = sqlite3.connect(workspace / DB_NAME)
     try:
         has_stages = db.execute("select 1 from sqlite_master where name = 'stages'").fetchone()
-        row = has_stages and db.execute("select stage from stages where status = 'waiting'").fetchone()
+        row = (
+            has_stages
+            and db.execute("select stage from stages where status = 'waiting'").fetchone()
+        )
         if not row:
             raise GateError("no review gate is waiting")
         stage = str(row[0])
         gate = stage.removesuffix(" gate")
         choices = read_choices(db, review_path(workspace, gate), gate)
         record_choices(db, gate, choices)
+        APPLIERS[gate](db, choices)
         with db:
             db.execute("update stages set status = 'approved' where stage = ?", (stage,))
         return gate
     finally:
         db.close()
+
+
+APPLIERS = {ANALYSIS: apply_analysis}

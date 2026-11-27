@@ -14,8 +14,8 @@ from book_translator.estimate import estimate
 from book_translator.gates import GateError, approve_waiting_gate
 from book_translator.llm import Adapter
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
-from book_translator.run import run
 from book_translator.review import ReviewError
+from book_translator.run import run
 from book_translator.search import Search, WikiSearch
 from book_translator.status import read_status, render
 from book_translator.structure import Book
@@ -34,6 +34,11 @@ def _parser() -> argparse.ArgumentParser:
         "--evaluation",
         action="store_true",
         help="evaluation run: no established-terminology lookups (ADR 0004)",
+    )
+    init.add_argument(
+        "--skip-analysis-gate",
+        action="store_true",
+        help="unattended run: accept every recommendation instead of stopping for review",
     )
     run_cmd = sub.add_parser("run", help="advance the book through its stages (resumable)")
     run_cmd.add_argument("workspace", type=Path)
@@ -95,6 +100,8 @@ def _init(args: argparse.Namespace) -> None:
     settings = {"variety": args.variety, "target": args.target, "cap_usd": f"{args.cap:.2f}"}
     if args.evaluation:
         settings["evaluation"] = "1"
+    if args.skip_analysis_gate:
+        settings["skip_analysis_gate"] = "1"
     try:
         workspace.create(path, epub, settings)
     except workspace.WorkspaceError as exc:
