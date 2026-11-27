@@ -32,9 +32,14 @@ class Status:
     gate: Gate | None
 
 
-def waiting_gate(db: sqlite3.Connection) -> Gate | None:
-    """The review gate waiting for approval, if any. No gates exist yet."""
-    return None
+def waiting_gate(db: sqlite3.Connection, workspace: Path) -> Gate | None:
+    """The review gate waiting for approval, if any."""
+    row = db.execute("select stage from stages where status = 'waiting'").fetchone()
+    if row is None:
+        return None
+    return Gate(
+        name=str(row[0]).removesuffix(" gate"), command=f"book-translator approve {workspace}"
+    )
 
 
 def read_status(workspace: Path) -> Status:
@@ -55,7 +60,7 @@ def read_status(workspace: Path) -> Status:
         if "spend" in tables:
             spent = float(db.execute("select coalesce(sum(cost_usd), 0) from spend").fetchone()[0])
         row = db.execute("select value from settings where key = ?", (CAP_SETTING,)).fetchone()
-        gate = waiting_gate(db)
+        gate = waiting_gate(db, workspace) if "stages" in tables else None
     finally:
         db.close()
     total = len(open_epub(workspace / SOURCE_NAME).book().chapters)

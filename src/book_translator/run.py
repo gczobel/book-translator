@@ -11,6 +11,7 @@ from book_translator.bible import Bible
 from book_translator.budget import Budget
 from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
+from book_translator.gates import ANALYSIS, skip_analysis_review, write_analysis_review
 from book_translator.llm import LLM, Adapter
 from book_translator.search import Search
 from book_translator.stages.complete import completion_request, completion_schema, merged
@@ -55,6 +56,7 @@ def run(workspace: Path, adapter: Adapter, search: Search | None = None) -> None
         _consolidation(db, llm)
         _completion(db, llm)
         _enrichment(db, llm, search)
+        _analysis_gate(db, workspace)
     finally:
         db.close()
 
@@ -140,3 +142,15 @@ def _enrichment(db: sqlite3.Connection, llm: LLM, search: Search | None) -> None
         db.execute("delete from bible")
         db.execute("insert into bible values (?)", (enriched.model_dump_json(),))
     _set_status(db, "enrichment", "done")
+
+
+def _analysis_gate(db: sqlite3.Connection, workspace: Path) -> None:
+    gate = f"{ANALYSIS} gate"
+    if _status(db, gate) is not None:
+        return
+    if db.execute("select 1 from settings where key = 'skip_analysis_gate'").fetchone():
+        skip_analysis_review(db)
+        _set_status(db, gate, "skipped")
+        return
+    write_analysis_review(db, workspace)
+    _set_status(db, gate, "waiting")

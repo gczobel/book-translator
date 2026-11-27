@@ -11,8 +11,10 @@ from book_translator.budget import CapReachedError, set_cap
 from book_translator.config import DEFAULT_CAP_USD, PROVIDER_KEYS, STAGE_MODELS, VARIETIES
 from book_translator.epub import open_epub
 from book_translator.estimate import estimate
+from book_translator.gates import GateError, approve_waiting_gate
 from book_translator.llm import Adapter
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
+from book_translator.review import ReviewError
 from book_translator.run import run
 from book_translator.search import Search, WikiSearch
 from book_translator.status import read_status, render
@@ -33,11 +35,18 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="evaluation run: no established-terminology lookups (ADR 0004)",
     )
+    init.add_argument(
+        "--skip-analysis-gate",
+        action="store_true",
+        help="unattended run: accept every recommendation instead of stopping for review",
+    )
     run_cmd = sub.add_parser("run", help="advance the book through its stages (resumable)")
     run_cmd.add_argument("workspace", type=Path)
     run_cmd.add_argument("--cap", type=float, help="set a new spending cap in USD before running")
     status_cmd = sub.add_parser("status", help="show the stage, progress and spend of a workspace")
     status_cmd.add_argument("workspace", type=Path)
+    approve_cmd = sub.add_parser("approve", help="approve the waiting review gate")
+    approve_cmd.add_argument("workspace", type=Path)
     return parser
 
 
@@ -62,6 +71,8 @@ def main(
             run(args.workspace, adapter, search)
         except CapReachedError as exc:
             sys.exit(f"stopped: {exc}")
+    elif args.command == "approve":
+        _approve(args.workspace)
     elif args.command == "status":
         if not (args.workspace / workspace.DB_NAME).is_file():
             sys.exit(f"error: not a workspace: {args.workspace}")
@@ -89,6 +100,8 @@ def _init(args: argparse.Namespace) -> None:
     settings = {"variety": args.variety, "target": args.target, "cap_usd": f"{args.cap:.2f}"}
     if args.evaluation:
         settings["evaluation"] = "1"
+    if args.skip_analysis_gate:
+        settings["skip_analysis_gate"] = "1"
     try:
         workspace.create(path, epub, settings)
     except workspace.WorkspaceError as exc:
@@ -110,3 +123,13 @@ def _print_structure(book: Book) -> None:
     for label, parts in (("Front matter", book.front), ("Back matter", book.back)):
         if parts:
             print(f"{label}: " + ", ".join(p.kind for p in parts))
+
+
+def _approve(path: Path) -> None:
+    if not (path / workspace.DB_NAME).is_file():
+        sys.exit(f"error: not a workspace: {path}")
+    try:
+        approve_waiting_gate(path)
+    except (GateError, ReviewError) as exc:
+        sys.exit(f"error: {exc}")
+    print(f"Approved. Next: book-translator run {path}")
