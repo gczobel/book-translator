@@ -35,6 +35,26 @@ class InvalidOutputError(Exception):
         self.log = log  # the file holding the raw answer, if it could be written
 
 
+class ModelRefusedError(Exception):
+    """The provider refused the request (a content filter), so there is no answer to read."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        stage: str = "",
+        key: str = "",
+        attempts: int = 0,
+        log: Path | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.stage = stage
+        self.key = key
+        self.attempts = attempts
+        self.detail = message  # the provider's own words
+        self.log = log  # the file holding them, if it could be written
+
+
 MAX_LOGGED_CHARS = 20_000
 _SECRET = re.compile(r"\b(?:sk|pk|key|tok)-[A-Za-z0-9_-]{8,}")
 
@@ -43,11 +63,20 @@ def _redact(text: str) -> str:
     return _SECRET.sub("[redacted]", text)
 
 
+def _write_log(database: Path, name: str, record: dict[str, object]) -> Path | None:
+    path = database.parent / "logs" / name
+    try:
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        return None
+    return path
+
+
 def save_invalid(
     database: Path, stage: str, key: str, raw: str, error: str, attempts: int
 ) -> Path | None:
     """Keep the last invalid answer next to the database, bounded; None if it cannot be written."""
-    path = database.parent / "logs" / f"invalid-{key}.json"
     record = {
         "stage": stage,
         "key": key,
@@ -56,12 +85,18 @@ def save_invalid(
         "raw": _redact(raw)[:MAX_LOGGED_CHARS],
         "raw_truncated": len(raw) > MAX_LOGGED_CHARS,
     }
-    try:
-        path.parent.mkdir(exist_ok=True)
-        path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
-    except OSError:
-        return None
-    return path
+    return _write_log(database, f"invalid-{key}.json", record)
+
+
+def save_refused(database: Path, stage: str, key: str, message: str, attempts: int) -> Path | None:
+    """Keep the provider's refusal next to the database; None if it cannot be written."""
+    record = {
+        "stage": stage,
+        "key": key,
+        "attempts": attempts,
+        "refusal": _redact(message)[:MAX_LOGGED_CHARS],
+    }
+    return _write_log(database, f"refused-{key}.json", record)
 
 
 @dataclass(frozen=True)
@@ -164,6 +199,7 @@ class LLM:
             return Result(schema.model_validate_json(cached), NO_USAGE)
         input_tokens = output_tokens = 0
         error: ValidationError | None = None
+        refused: ModelRefusedError | None = None
         last = ""
         asked = replace(request, output_schema=json.dumps(schema.model_json_schema()))
         for attempt in range(self._max_attempts):
@@ -171,7 +207,12 @@ class LLM:
                 asked = replace(asked, feedback=str(error))
             if self._budget is not None:
                 self._budget.check(_projected_cost(request))
-            raw = self._adapter.complete(asked, key, attempt)
+            try:
+                raw = self._adapter.complete(asked, key, attempt)
+            except ModelRefusedError as exc:  # no tokens are reported for a refused call
+                refused = exc
+                continue
+            refused = None
             if self._budget is not None:
                 self._budget.record(
                     request.stage, cost_of(request.model, raw.input_tokens, raw.output_tokens)
@@ -187,6 +228,15 @@ class LLM:
             self._cache.put(key, strip_fences(raw.text))
             cost = cost_of(request.model, input_tokens, output_tokens)
             return Result(output, Usage(input_tokens, output_tokens, cost))
+        if refused is not None:
+            log = save_refused(self._database, request.stage, key, str(refused), self._max_attempts)
+            raise ModelRefusedError(
+                str(refused),
+                stage=request.stage,
+                key=key,
+                attempts=self._max_attempts,
+                log=log,
+            )
         log = save_invalid(self._database, request.stage, key, last, str(error), self._max_attempts)
         raise InvalidOutputError(
             f"output for key {key} failed validation after {self._max_attempts} attempt(s):"
