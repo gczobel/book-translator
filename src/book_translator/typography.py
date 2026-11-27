@@ -271,6 +271,33 @@ def raya_layout(context: QAContext) -> list[Finding]:
     return found
 
 
+_THOUGHT_VERB = r"(?:pens\w+|se dijo|se dijeron|me dije|se preguntó|me pregunté)\b"
+_QUOTED_THOUGHT = re.compile(rf"«[^«»]+»,?\s+{_THOUGHT_VERB}")
+_ITALIC_THOUGHT = re.compile(rf'<pc id="(\d+)">[^<]+</pc>,?\s+{_THOUGHT_VERB}')
+
+
+@check("thoughts")
+def thought_style(context: QAContext) -> list[Finding]:
+    """Thoughts are set the one way the style sheet chose, everywhere (Q5, 5.4): in italics or in
+    « ». A thought is a quote or an italic span followed by a thinking verb (`pensó`, `se dijo`).
+    The normaliser cannot switch between the two (it may not add or drop an inline code), so
+    a thought in the other style is reported."""
+    choice = context.bible.style.thoughts
+    found = []
+    for block, texts in context.targets.items():
+        for text in texts:
+            if choice != "quotation marks" and _QUOTED_THOUGHT.search(text):
+                found.append(Finding("thoughts", block, f"a thought is in « », not {choice}"))
+            italic = [
+                m
+                for m in _ITALIC_THOUGHT.finditer(text)
+                if context.sources[block].element_name(int(m.group(1))) in ("i", "em")
+            ]
+            if choice != "italics" and italic:
+                found.append(Finding("thoughts", block, f"a thought is in italics, not {choice}"))
+    return found
+
+
 RULES: list[tuple[str, Callable[[str], str]]] = [
     ("quotes", quotes),
     ("raya", raya),

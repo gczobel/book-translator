@@ -38,6 +38,13 @@ class EncodedBlock:
     text: str
     _codes: dict[int, _Code]
 
+    def element_name(self, number: int) -> str | None:
+        """The tag name of the element behind code `number` (`i`, `em`, `a`...), if it has one."""
+        code = self._codes.get(number)
+        if code is None or not isinstance(code.original.tag, str):
+            return None
+        return etree.QName(code.original).localname
+
     def validate_pieces(self, pieces: Sequence[str]) -> None:
         """Like `validate`, for a block split into several target blocks.
 

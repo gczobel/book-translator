@@ -1,12 +1,13 @@
 """Seam 1: the CLI. S8 Spanish typography: the normaliser's stored targets and QA's findings."""
 
+import json
 from pathlib import Path
 
 import pytest
 
 from test_cli_draft import source_ids
 from test_cli_fidelity import query, target_text
-from test_cli_qa import CountingAdapter, findings, qa, set_source, set_target, translate
+from test_cli_qa import CountingAdapter, findings, qa, set_source, set_target, tamper, translate
 
 BLOCK = source_ids()[1]
 
@@ -117,6 +118,52 @@ def test_numbers_use_a_decimal_comma_and_spaced_thousands_and_percent_signs(
         assert normalised(ws, text, adapter, capsys) == expected  # N2, N3, N6
         assert normalised(ws, expected, adapter, capsys) == expected
     assert findings(ws) == []
+
+
+def test_inline_codes_are_never_corrupted(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+    block = "OEBPS/ch2.xhtml#1"
+    set_target(ws, block, 'Dijo "<pc id="1">alto</pc>" ya, 25% así.')
+
+    qa(ws, adapter, capsys)
+
+    assert target_text(ws, block) == 'Dijo «<pc id="1">alto</pc>» ya, 25 % así.'
+    assert [f for f in findings(ws) if f[0] == block] == []
+    set_target(ws, block, 'Dijo "<pc id="1">alto" ya</pc> así.')  # a pair straddling a quote
+    qa(ws, adapter, capsys)
+    assert target_text(ws, block) == 'Dijo «<pc id="1">alto» ya</pc> así.'
+    assert [f for f in findings(ws) if f[0] == block] == []  # the codes are still legal
+
+
+def set_thoughts(ws: Path, setting: str) -> None:
+    """Change the style sheet's thoughts choice in the stored bible."""
+    (stored,) = query(ws, "select result from bible")[0]
+    bible = json.loads(stored)
+    bible["style"]["thoughts"] = setting
+    tamper(ws, "update bible set result = ?", json.dumps(bible))
+
+
+def test_thoughts_follow_the_style_sheet_choice_everywhere(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+    italic = "OEBPS/ch2.xhtml#1"  # the block with an italic code
+    set_target(ws, italic, '<pc id="1">Qué tarde</pc>, pensó él.')
+    set_target(ws, BLOCK, "«Qué bien», se dijo ella en voz baja, sin mirar a nadie.")
+
+    qa(ws, adapter, capsys)
+    assert [f for f in findings(ws) if f[1] == "thoughts"] == [(BLOCK, "thoughts")]  # « » is wrong
+
+    set_thoughts(ws, "quotation marks")
+    qa(ws, adapter, capsys)
+    assert [f for f in findings(ws) if f[1] == "thoughts"] == [(italic, "thoughts")]
+
+    set_thoughts(ws, "plain")
+    qa(ws, adapter, capsys)
+    wrong = {f for f in findings(ws) if f[1] == "thoughts"}
+    assert wrong == {(BLOCK, "thoughts"), (italic, "thoughts")}
 
 
 def test_months_and_days_are_lowercase_inside_a_sentence_but_not_names_or_sentence_starts(
