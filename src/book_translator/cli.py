@@ -1,8 +1,9 @@
-"""Command-line interface: init, run, status, approve, export and evaluate."""
+"""Command-line interface: init, run, status, approve, waive, export and evaluate."""
 
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -28,7 +29,7 @@ from book_translator.inline import InlineCodeError
 from book_translator.llm import Adapter, InvalidOutputError, ModelRefusedError
 from book_translator.progress import Progress
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
-from book_translator.qa import print_report
+from book_translator.qa import WaiverError, print_report, waive
 from book_translator.review import ReviewError
 from book_translator.run import run
 from book_translator.search import Search, WikiSearch
@@ -78,6 +79,13 @@ def _parser() -> argparse.ArgumentParser:
     status_cmd.add_argument("workspace", type=Path)
     approve_cmd = sub.add_parser("approve", help="approve the waiting review gate")
     approve_cmd.add_argument("workspace", type=Path)
+    waive_cmd = sub.add_parser(
+        "waive", help="accept QA findings you have looked at, so they stop blocking the build"
+    )
+    waive_cmd.add_argument("workspace", type=Path)
+    waive_cmd.add_argument("check", help="the check that reported them, e.g. numbers")
+    waive_cmd.add_argument("blocks", nargs="+", help="the block ids to accept it for")
+    waive_cmd.add_argument("--reason", default="", help="why it is fine (kept in the report)")
     export_cmd = sub.add_parser("export", help="build the translated EPUB and validate it")
     export_cmd.add_argument("workspace", type=Path)
     evaluate_cmd = sub.add_parser(
@@ -125,6 +133,8 @@ def main(
         print_report(args.workspace)
     elif args.command == "approve":
         _approve(args.workspace)
+    elif args.command == "waive":
+        _waive(args)
     elif args.command == "export":
         _export(args.workspace)
     elif args.command == "evaluate":
@@ -167,6 +177,22 @@ def _invalid_message(exc: InvalidOutputError, path: Path) -> str:
         f"error: the model's answer failed validation after {exc.attempts} attempt(s){where}: "
         f"{detail}\n{saved}\n"
         f"Work done so far is kept; resume with: book-translator run {path}"
+    )
+
+
+def _waive(args: argparse.Namespace) -> None:
+    if not (args.workspace / workspace.DB_NAME).is_file():
+        sys.exit(f"error: not a workspace: {args.workspace}")
+    db = sqlite3.connect(args.workspace / workspace.DB_NAME)
+    try:
+        count = waive(db, args.check, args.blocks, args.reason)
+    except WaiverError as exc:
+        sys.exit(f"error: {exc}")
+    finally:
+        db.close()
+    print(
+        f"{count} finding(s) accepted. They stay in the report; they come back if the block's"
+        " text changes. Run book-translator run to re-check."
     )
 
 

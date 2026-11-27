@@ -242,3 +242,57 @@ def test_the_length_band_is_configurable(
     qa(ws, adapter, capsys)
 
     assert findings(ws) == []
+
+
+def test_a_waived_finding_no_longer_blocks_the_build_and_is_still_reported(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    adapter = CountingAdapter()
+    ws = translate(tmp_path, adapter)
+    block = source_ids()[1]
+    set_target(ws, block, "")
+    qa(ws, adapter, capsys)
+
+    main(["waive", str(ws), "omission", block, "--reason", "left empty on purpose"])
+    waived = capsys.readouterr().out
+    out = qa(ws, adapter, capsys)  # QA runs again and keeps honouring the waiver
+
+    with sqlite3.connect(ws / "book.sqlite") as db:
+        require_qa_clean(db)
+    assert "1 finding(s) accepted" in waived
+    assert "QA: passed" in out and "1 accepted" in out
+    assert f"[omission] {block}" in out and "left empty on purpose" in out
+    assert findings(ws) == []
+    main(["status", str(ws)])
+    assert "Stage: qa (done)" in capsys.readouterr().out
+
+
+def test_a_waiver_only_covers_the_text_that_was_looked_at(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    adapter = CountingAdapter()
+    ws = translate(tmp_path, adapter, "--qa-length-band", "0.1", "2")
+    block = source_ids()[1]
+    set_target(ws, block, "It was a quiet evening. " * 8)
+    qa(ws, adapter, capsys)
+    main(["waive", str(ws), "length_ratio", block])
+    qa(ws, adapter, capsys)
+    assert findings(ws) == []
+
+    set_target(ws, block, "It was a quiet evening, again. " * 8)  # changed after the waiver
+    qa(ws, adapter, capsys)
+
+    assert findings(ws) == [(block, "length_ratio")]
+
+
+def test_only_an_open_finding_can_be_waived(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    adapter = CountingAdapter()
+    ws = translate(tmp_path, adapter)
+
+    with pytest.raises(SystemExit) as stopped:
+        main(["waive", str(ws), "omission", source_ids()[1]])
+
+    message = str(stopped.value)
+    assert "no open omission finding" in message and source_ids()[1] in message
