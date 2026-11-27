@@ -43,7 +43,10 @@ def _needs(job: dict[str, Any]) -> list[str]:
 
 
 def _tests_gate(job: dict[str, Any], gates: set[str]) -> bool:
-    """True if the job runs only when a gate's output is 'false'.
+    """True if the job runs only when a gate's output is 'false' or the gate itself failed.
+
+    A gate that failed reports nothing, so it is not a pause: a job may run on exactly
+    `needs.<gate>.result == 'failure'` to escalate it (ADR 0005, invariant 4).
 
     The condition must have no `||` and one of its `&&`-separated terms must be exactly the
     comparison, so the job cannot run unless the comparison is true.
@@ -54,7 +57,10 @@ def _tests_gate(job: dict[str, Any], gates: set[str]) -> bool:
     terms = [term.strip() for term in condition.split("&&")]
     needed = set(_needs(job))
     return any(
-        g in needed and re.fullmatch(rf"needs\.{re.escape(g)}\.outputs\.paused == 'false'", t)
+        g in needed
+        and re.fullmatch(
+            rf"needs\.{re.escape(g)}\.(outputs\.paused == 'false'|result == 'failure')", t
+        )
         for g in gates
         for t in terms
     )
