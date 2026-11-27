@@ -11,6 +11,7 @@ from book_translator.epub import open_epub
 from book_translator.estimate import estimate
 from book_translator.llm import Adapter
 from book_translator.run import run
+from book_translator.search import Search
 from book_translator.structure import Book
 
 
@@ -23,12 +24,22 @@ def _parser() -> argparse.ArgumentParser:
     init.add_argument("--target", default="es", help="target language (default: es)")
     init.add_argument("--cap", type=float, default=DEFAULT_CAP_USD, help="spending cap in USD")
     init.add_argument("--workspace", type=Path, help="workspace folder (default: ./<epub name>)")
+    init.add_argument(
+        "--evaluation",
+        action="store_true",
+        help="evaluation run: no established-terminology lookups (ADR 0004)",
+    )
     run_cmd = sub.add_parser("run", help="advance the book through its stages (resumable)")
     run_cmd.add_argument("workspace", type=Path)
     return parser
 
 
-def main(argv: Sequence[str] | None = None, *, adapter: Adapter | None = None) -> None:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    adapter: Adapter | None = None,
+    search: Search | None = None,
+) -> None:
     parser = _parser()
     args = parser.parse_args(argv)
     if args.command == "init":
@@ -36,7 +47,7 @@ def main(argv: Sequence[str] | None = None, *, adapter: Adapter | None = None) -
     elif args.command == "run":
         if adapter is None:
             sys.exit("error: no LLM adapter is configured yet")
-        run(args.workspace, adapter)
+        run(args.workspace, adapter, search)
     else:
         parser.print_help()
 
@@ -49,6 +60,8 @@ def _init(args: argparse.Namespace) -> None:
         sys.exit(f"error: cannot read {epub} as an EPUB: {exc}")
     path: Path = args.workspace or Path(epub.stem)
     settings = {"variety": args.variety, "target": args.target, "cap_usd": f"{args.cap:.2f}"}
+    if args.evaluation:
+        settings["evaluation"] = "1"
     try:
         workspace.create(path, epub, settings)
     except workspace.WorkspaceError as exc:
