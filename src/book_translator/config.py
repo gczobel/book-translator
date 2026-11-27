@@ -25,6 +25,9 @@ STAGE_MODELS: dict[str, str] = {
     "fidelity": "anthropic:claude-sonnet-5-5",
     "polish": "anthropic:claude-sonnet-5-5",
     "post_polish_fidelity": "anthropic:claude-sonnet-5-5",
+    # Evaluation-only stages (`evaluate --judge`, `--diagnose`): never part of a translation run.
+    "judge": "anthropic:claude-opus-5-5",
+    "diagnosis": "anthropic:claude-opus-5-5",
 }
 
 

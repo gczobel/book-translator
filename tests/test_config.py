@@ -8,13 +8,15 @@ SONNET = "anthropic:claude-sonnet-5-5"
 OPUS = "anthropic:claude-opus-5-5"
 
 
-def test_opus_is_used_for_consolidation_and_tk_resolution() -> None:
-    assert STAGE_MODELS["consolidation"] == OPUS
-    assert STAGE_MODELS["tk_resolution"] == OPUS
+OPUS_STAGES = {"consolidation", "tk_resolution", "judge", "diagnosis"}
+
+
+def test_opus_is_used_for_consolidation_tk_resolution_and_the_evaluation_stages() -> None:
+    assert {STAGE_MODELS[stage] for stage in OPUS_STAGES} == {OPUS}
 
 
 def test_every_other_stage_defaults_to_sonnet() -> None:
-    others = set(STAGE_MODELS) - {"consolidation", "tk_resolution"}
+    others = set(STAGE_MODELS) - OPUS_STAGES
 
     assert others
     assert {STAGE_MODELS[stage] for stage in others} == {SONNET}

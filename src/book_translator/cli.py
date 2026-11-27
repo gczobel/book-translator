@@ -80,6 +80,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     evaluate_cmd.add_argument("workspace", type=Path)
     evaluate_cmd.add_argument("--reference", type=Path, required=True, help="reference EPUB")
+    evaluate_cmd.add_argument(
+        "--judge", action="store_true", help="LLM judge: errors by type and severity per scene"
+    )
+    evaluate_cmd.add_argument(
+        "--diagnose", action="store_true", help="LLM diagnosis: likely causes and suggested fixes"
+    )
     return parser
 
 
@@ -111,7 +117,7 @@ def main(
     elif args.command == "export":
         _export(args.workspace)
     elif args.command == "evaluate":
-        _evaluate(args.workspace, args.reference, embedder or LaBSEEmbedder())
+        _evaluate(args, adapter, embedder or LaBSEEmbedder())
     elif args.command == "status":
         if not (args.workspace / workspace.DB_NAME).is_file():
             sys.exit(f"error: not a workspace: {args.workspace}")
@@ -133,13 +139,25 @@ def _export(path: Path) -> None:
     print(f"Exported: {out}\nepubcheck report: {path / REPORT_NAME}")
 
 
-def _evaluate(path: Path, reference: Path, embedder: Embedder) -> None:
+def _evaluate(args: argparse.Namespace, adapter: Adapter | None, embedder: Embedder) -> None:
+    path: Path = args.workspace
     if not (path / workspace.DB_NAME).is_file():
         sys.exit(f"error: not a workspace: {path}")
+    if (args.judge or args.diagnose) and adapter is None:
+        adapter = _production_adapter()
     try:
-        out = evaluate(path, reference, embedder)
+        out = evaluate(
+            path,
+            args.reference,
+            embedder,
+            adapter=adapter,
+            judge=args.judge,
+            diagnose=args.diagnose,
+        )
     except (EvaluateError, EmbeddingsUnavailableError) as exc:
         sys.exit(f"error: {exc}")
+    except CapReachedError as exc:
+        sys.exit(f"stopped: {exc}")
     print(f"Quality report: {out}\nReadable copy: {path / REPORT_MD}")
 
 
