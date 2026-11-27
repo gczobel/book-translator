@@ -19,6 +19,7 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.2.0",
     "ruff>=0.17.6",
+    "zizmor>=1.33.1",
 ]
 
 [tool.pytest.ini_options]
