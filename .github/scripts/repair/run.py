@@ -24,7 +24,8 @@ from typing import Any
 from arming.collect import Api, parse_pull
 from ghapi.client import ApiError, HttpApi
 from ghapi.repo import split_repo
-from repair import core, names as names_mod, patch
+from repair import core, patch
+from repair import names as names_mod
 from repair_validate.errors import ValidateError
 from repair_validate.gitdata import GitRepo
 
