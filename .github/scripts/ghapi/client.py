@@ -36,7 +36,7 @@ class HttpApi:
                 "Authorization": f"Bearer {self._token}",
                 "Accept": accept,
                 "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": "book-translator-guard",
+                "User-Agent": "book-translator-automation",
             },
         )
         with urllib.request.urlopen(request, timeout=30) as response:

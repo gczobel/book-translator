@@ -5,6 +5,8 @@ name: escalate
 #   escalate:
 #     needs: [the-jobs]
 #     if: ${{ failure() || cancelled() }}
+#     permissions:
+#       contents: read   # a called workflow can't exceed its caller's permissions
 #     uses: ./.github/workflows/escalate.yml
 #     with: { reason: workflow-failed, key: some-problem-key }
 #
@@ -47,6 +49,11 @@ on:
 
 # Least privilege by default; each job asks for what it needs (ADR 0005).
 permissions: {}
+
+# Two runs for the same problem queue up instead of both missing the issue and opening two.
+concurrency:
+  group: escalate-${{ inputs.key }}
+  cancel-in-progress: false
 
 jobs:
   escalate:

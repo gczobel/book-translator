@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 MAINT_BOT_ID = 361970745  # book-translator-maint[bot]
-OWNER_LOGIN = "gczobel"
+OWNER_LOGIN = "gczobel"  # only for assigning; identity checks use numeric IDs
 LABEL = "ready-for-human"
 
 # reason code -> (title, what happened). Later tickets add their own codes here.
@@ -117,14 +117,19 @@ def _is_ours(issue: Any, key: str) -> bool:
 
 def escalate(api: Api, repo: str, request: Request) -> str:
     """Open the issue, or comment on the open one for this problem. Returns what it did."""
-    open_issues = api.get_pages(f"/repos/{repo}/issues?state=open&labels={LABEL}")
-    for issue in open_issues:
+    # No label filter: if the owner removes the label our issue must still be found, not
+    # duplicated. The App's numeric ID and the marker identify it, not the label.
+    for issue in api.get_pages(f"/repos/{repo}/issues?state=open"):
         if _is_ours(issue, request.key):
             number = int(issue["number"])
+            base = f"/repos/{repo}/issues/{number}"
             api.post_json(
-                f"/repos/{repo}/issues/{number}/comments",
+                f"{base}/comments",
                 {"body": f"Still happening.\n\n**Run:** {request.run_url}"},
             )
+            # Put it back in the owner's inbox if the label or the assignee was removed.
+            api.post_json(f"{base}/labels", {"labels": [LABEL]})
+            api.post_json(f"{base}/assignees", {"assignees": [OWNER_LOGIN]})
             return f"updated #{number}"
     title, body = _render(request)
     created = api.post_json(

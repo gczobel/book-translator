@@ -1,4 +1,4 @@
-"""The guard's GitHub client: it holds the token, so its refusals matter."""
+"""The shared GitHub client: it holds the token, so its refusals matter."""
 
 import io
 import json
@@ -129,3 +129,13 @@ def test_post_json_sends_the_payload_with_the_token(monkeypatch: pytest.MonkeyPa
     assert request.get_method() == "POST"
     assert request.data == b'{"title": "t"}'
     assert request.get_header("Authorization") == "Bearer secret"
+
+
+def test_a_list_longer_than_the_page_cap_fails_closed_for_every_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The escalation job lists every open issue; hitting the cap must stop it, not truncate.
+    link = f'<{API}/repos/o/r/issues?state=open&page=2>; rel="next"'
+    _install(monkeypatch, *[Response([{"number": n}], link=link) for n in range(100)])
+    with pytest.raises(ApiError, match="too many pages"):
+        HttpApi("t").get_pages("/repos/o/r/issues?state=open")

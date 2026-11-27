@@ -19,7 +19,7 @@ class FakeApi:
         self.posts: list[tuple[str, dict[str, Any]]] = []
 
     def get_pages(self, path: str) -> list[Any]:
-        assert path == f"/repos/{REPO}/issues?state=open&labels=ready-for-human"
+        assert path == f"/repos/{REPO}/issues?state=open"
         return self.open_issues
 
     def post_json(self, path: str, payload: dict[str, Any]) -> Any:
@@ -69,9 +69,21 @@ def test_the_same_problem_again_comments_instead_of_opening_a_second_issue() -> 
     existing = _issue(7, body="x\n" + MARKER.format(key="repair-pr-12"))
     api = FakeApi([existing])
     assert escalate(api, REPO, _request()) == "updated #7"
-    ((path, payload),) = api.posts
-    assert path == f"/repos/{REPO}/issues/7/comments"
-    assert "https://github.com/o/r/actions/runs/555" in payload["body"]
+    (comment_path, comment), *rest = api.posts
+    assert comment_path == f"/repos/{REPO}/issues/7/comments"
+    assert "https://github.com/o/r/actions/runs/555" in comment["body"]
+    # and the issue goes back to the owner's inbox if the label or assignee was removed
+    assert rest == [
+        (f"/repos/{REPO}/issues/7/labels", {"labels": ["ready-for-human"]}),
+        (f"/repos/{REPO}/issues/7/assignees", {"assignees": [core.OWNER_LOGIN]}),
+    ]
+
+
+def test_an_issue_whose_label_was_removed_is_still_found_not_duplicated() -> None:
+    unlabelled = _issue(7, body=MARKER.format(key="repair-pr-12"), labels=[])
+    api = FakeApi([unlabelled])
+    assert escalate(api, REPO, _request()) == "updated #7"
+    assert all(path != f"/repos/{REPO}/issues" for path, _ in api.posts)
 
 
 def test_a_different_problem_gets_its_own_issue() -> None:
