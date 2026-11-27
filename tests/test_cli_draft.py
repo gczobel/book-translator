@@ -10,7 +10,7 @@ import pytest
 
 from book_translator import main
 from book_translator.epub import open_epub
-from book_translator.llm import LLMRequest, RawAnswer
+from book_translator.llm import LLMRequest, ModelRefusedError, RawAnswer
 from test_cli_bible_part2 import EPUB, Part2Adapter, echo_draft, part2
 
 Answer = Callable[[LLMRequest, int], str]
@@ -272,6 +272,25 @@ def test_a_tk_type_and_scope_spelled_loosely_are_read_as_the_allowed_ones(ws: Pa
     stored = stored_tk(ws)
     assert (stored["type"], stored["scope"]) == ("cultural reference", "recurring")
     assert adapter.draft_attempts == len(adapter.draft_requests)
+
+
+def test_a_refusal_that_persists_stops_the_run_with_a_short_message_and_a_log(
+    ws: Path,
+) -> None:
+    def refused(request: LLMRequest, attempt: int) -> str:
+        raise ModelRefusedError("This request was blocked (reasoning_extraction)")
+
+    adapter = DraftAdapter(refused)
+    with pytest.raises(SystemExit) as stopped:
+        drafted(ws, adapter)
+
+    message = str(stopped.value)
+    assert "refused" in message and "draft" in message and "reasoning_extraction" in message
+    assert "Traceback" not in message
+    logs = list((ws / "logs").glob("refused-*.json"))
+    assert len(logs) == 1 and str(logs[0]) in message
+    assert f"book-translator run {ws}" in message
+    assert adapter.draft_attempts == 3
 
 
 def test_a_tk_of_an_unknown_type_is_retried(ws: Path) -> None:

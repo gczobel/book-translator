@@ -2,12 +2,13 @@
 
 from pathlib import Path
 
+import pytest
 from pydantic import BaseModel
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ThinkingPart
 from pydantic_ai.models import Model
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from book_translator.llm import LLM, LLMRequest
+from book_translator.llm import LLM, LLMRequest, ModelRefusedError
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
 
 
@@ -111,3 +112,17 @@ def test_a_retry_tells_the_model_what_was_wrong(tmp_path: Path) -> None:
 
     assert "validation error" in seen[1].lower()
     assert "validation error" not in seen[0].lower()
+
+
+def test_a_refusal_by_the_provider_becomes_our_own_error_with_its_text() -> None:
+    def refuse(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(
+            parts=[ThinkingPart(content="")],
+            finish_reason="content_filter",
+            provider_details={"refusal": "blocked: reasoning_extraction"},
+        )
+
+    adapter = PydanticAIAdapter(lambda name: FunctionModel(refuse))
+
+    with pytest.raises(ModelRefusedError, match="reasoning_extraction"):
+        adapter.complete(make_request(), "k", 0)

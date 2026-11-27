@@ -5,7 +5,14 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from book_translator.llm import LLM, InvalidOutputError, LLMRequest, request_key
+from book_translator.llm import (
+    LLM,
+    InvalidOutputError,
+    LLMRequest,
+    ModelRefusedError,
+    RawAnswer,
+    request_key,
+)
 from book_translator.replay import MissingRecordingError, ReplayAdapter
 
 
@@ -118,3 +125,49 @@ def test_invalid_output_is_never_cached(tmp_path: Path) -> None:
     good = ReplayAdapter({request_key(request): '{"text": "hello"}'})
 
     assert LLM(good, database).call(request, Greeting).output == Greeting(text="hello")
+
+
+class Refusing:
+    """An adapter refusing its first `refusals` calls, then answering."""
+
+    def __init__(self, refusals: int) -> None:
+        self.refusals = refusals
+        self.calls = 0
+
+    def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+        self.calls += 1
+        if self.calls <= self.refusals:
+            raise ModelRefusedError("blocked: reasoning_extraction")
+        return RawAnswer('{"text": "hello"}', 10, 5)
+
+
+def test_a_refusal_is_retried_and_a_later_answer_is_returned(tmp_path: Path) -> None:
+    adapter = Refusing(refusals=2)
+
+    result = LLM(adapter, tmp_path / "book.sqlite").call(make_request(), Greeting)
+
+    assert result.output == Greeting(text="hello")
+    assert adapter.calls == 3
+
+
+def test_a_refusal_that_persists_is_saved_and_raised_with_its_context(tmp_path: Path) -> None:
+    request = make_request()
+    adapter = Refusing(refusals=99)
+
+    with pytest.raises(ModelRefusedError) as stopped:
+        LLM(adapter, tmp_path / "book.sqlite").call(request, Greeting)
+
+    assert adapter.calls == 3
+    assert stopped.value.stage == request.stage
+    assert stopped.value.attempts == 3
+    assert "reasoning_extraction" in stopped.value.detail
+    assert stopped.value.log == tmp_path / "logs" / f"refused-{request_key(request)}.json"
+    assert "reasoning_extraction" in stopped.value.log.read_text()
+
+
+def test_a_refusal_is_never_cached(tmp_path: Path) -> None:
+    database = tmp_path / "book.sqlite"
+    with pytest.raises(ModelRefusedError):
+        LLM(Refusing(refusals=99), database, max_attempts=1).call(make_request(), Greeting)
+
+    assert LLM(Refusing(refusals=0), database).call(make_request(), Greeting).output.text == "hello"

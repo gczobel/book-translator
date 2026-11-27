@@ -3,9 +3,10 @@
 from collections.abc import Callable
 
 from pydantic_ai import Agent
+from pydantic_ai.exceptions import ContentFilterError
 from pydantic_ai.models import Model
 
-from book_translator.llm import LLMRequest, RawAnswer
+from book_translator.llm import LLMRequest, ModelRefusedError, RawAnswer
 
 ModelResolver = Callable[[str], Model | str]
 
@@ -38,6 +39,9 @@ class PydanticAIAdapter:
                 f"Fix it:\n{request.feedback}"
             )
         agent = Agent(self._resolve(request.model), instructions=instructions)
-        result = agent.run_sync(request.source_text)
+        try:
+            result = agent.run_sync(request.source_text)
+        except ContentFilterError as exc:
+            raise ModelRefusedError(exc.message) from exc
         usage = result.usage
         return RawAnswer(result.output, usage.input_tokens, usage.output_tokens)
