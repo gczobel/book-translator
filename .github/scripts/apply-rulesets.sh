@@ -18,3 +18,8 @@ for file in "$dir"/*.json; do
     echo "created $name"
   fi
 done
+
+# Fork PR runs need the owner's approval (a repository Actions setting, not a ruleset).
+gh api --method PUT "repos/$repo/actions/permissions/fork-pr-contributor-approval" \
+  -f approval_policy=all_external_contributors --silent
+echo "fork PR approval: all_external_contributors"

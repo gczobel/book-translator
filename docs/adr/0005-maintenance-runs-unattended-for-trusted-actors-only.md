@@ -72,6 +72,8 @@ code from something that may have been tricked.
     actor skips every rule of the ruleset it is listed on, so the split lets the App create tags
     without ever being able to move or delete one. The rulesets live in `.github/rulesets/` and are
     applied with `.github/scripts/apply-rulesets.sh`.
+    The same script sets the repository Actions setting that makes every fork PR run wait for the
+    owner's approval (`all_external_contributors`).
   - A job verifies that each new tag points at a release-please merge on `main`.
 - **Repairs**: when a Dependabot or release PR fails CI, three jobs run.
   1. **agent**: only the Anthropic key; read-only token; no caches; restricted network; Claude Code
