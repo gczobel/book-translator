@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from lxml import etree
 
 from book_translator.epub import Epub
+from book_translator.fonts import check_font_coverage
 from book_translator.notes import AddedNote, add_notes
 
 _DC = "http://purl.org/dc/elements/1.1/"
@@ -43,6 +44,7 @@ def apply_synchronized_edits(epub: Epub, edits: SyncEdits) -> None:
     if edits.added_notes:
         add_notes(epub, edits.added_notes)
     if edits.language is not None:
+        check_font_coverage(epub, edits.language)
         for member in epub.spine():
             tree = etree.ElementTree(etree.fromstring(epub.read(member)))
             tree.getroot().set(_XML_LANG, edits.language)
