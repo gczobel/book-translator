@@ -1,0 +1,82 @@
+name: escalate
+
+# Reusable: any unattended workflow calls this when it fails, is cancelled or gives up.
+#
+#   escalate:
+#     needs: [the-jobs]
+#     if: ${{ failure() || cancelled() }}
+#     permissions:
+#       contents: read   # a called workflow can't exceed its caller's permissions
+#     uses: ./.github/workflows/escalate.yml
+#     with: { reason: workflow-failed, key: some-problem-key }
+#
+# The inputs are structured on purpose (a reason code and a strict key, validated by the
+# script); the issue text comes from the script, never from PR, issue, log or release text.
+# The `maintenance` environment only allows runs from main, so callers must run in the main
+# context (schedule, push to main, workflow_run, dispatch), never on `pull_request`.
+on:
+  workflow_call:
+    inputs:
+      reason:
+        description: Reason code from the table in .github/scripts/escalate/core.py
+        type: string
+        required: true
+      key:
+        description: One problem, one key (a-z 0-9 . _ -, at most 64 characters)
+        type: string
+        required: true
+      ref:
+        description: Related PR or issue number, if any
+        type: string
+        required: false
+        default: ""
+  # Manual trigger, for the owner to test the loop (the live check, ticket #27).
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Reason code
+        type: choice
+        options: [selftest, workflow-failed, pause-unreadable]
+        default: selftest
+      key:
+        description: Problem key
+        type: string
+        default: selftest
+      ref:
+        description: Related PR or issue number (optional)
+        type: string
+        default: ""
+
+# Least privilege by default; each job asks for what it needs (ADR 0005).
+permissions: {}
+
+# Two runs for the same problem queue up instead of both missing the issue and opening two.
+concurrency:
+  group: escalate-${{ inputs.key }}
+  cancel-in-progress: false
+
+jobs:
+  escalate:
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      # Scripts come from the ref this runs on, which the environment limits to main.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # A maintenance App token limited to issues, revoked when the job ends.
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        id: token
+        with:
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
+          permission-issues: write
+      - run: python3 -m escalate
+        env:
+          PYTHONPATH: .github/scripts
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          ESCALATE_REASON: ${{ inputs.reason }}
+          ESCALATE_KEY: ${{ inputs.key }}
+          ESCALATE_REF: ${{ inputs.ref }}

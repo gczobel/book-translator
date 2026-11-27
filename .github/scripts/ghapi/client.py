@@ -1,4 +1,4 @@
-"""A minimal GitHub REST client over the standard library.
+"""A minimal GitHub REST client over the standard library, shared by the guard and escalation.
 
 The token is only ever sent to api.github.com: pagination links that point anywhere
 else are refused.
@@ -12,7 +12,10 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from guard.errors import GuardError
+
+class ApiError(Exception):
+    """A GitHub call can't be made safely or its answer can't be trusted. Callers fail closed."""
+
 
 _API = "https://api.github.com"
 _NEXT = re.compile(r'<([^>]+)>;\s*rel="next"')
@@ -23,16 +26,17 @@ class HttpApi:
     def __init__(self, token: str) -> None:
         self._token = token
 
-    def _open(self, url: str, accept: str) -> tuple[bytes, str]:
+    def _open(self, url: str, accept: str, data: bytes | None = None) -> tuple[bytes, str]:
         if not url.startswith(_API + "/"):
-            raise GuardError("refusing to send the token to a non-GitHub URL")
+            raise ApiError("refusing to send the token to a non-GitHub URL")
         request = urllib.request.Request(
             url,
+            data=data,
             headers={
                 "Authorization": f"Bearer {self._token}",
                 "Accept": accept,
                 "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": "book-translator-guard",
+                "User-Agent": "book-translator-automation",
             },
         )
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -41,6 +45,11 @@ class HttpApi:
     def get_json(self, path: str) -> Any:
         body, _ = self._open(_API + path, "application/vnd.github+json")
         return json.loads(body)
+
+    def post_json(self, path: str, payload: dict[str, Any]) -> Any:
+        body = json.dumps(payload).encode()
+        response, _ = self._open(_API + path, "application/vnd.github+json", data=body)
+        return json.loads(response) if response else None
 
     def get_pages(self, path: str) -> list[Any]:
         items: list[Any] = []
@@ -52,12 +61,12 @@ class HttpApi:
             body, link = self._open(url, "application/vnd.github+json")
             page = json.loads(body)
             if not isinstance(page, list):
-                raise GuardError("expected a list from a paginated endpoint")
+                raise ApiError("expected a list from a paginated endpoint")
             items += page
             match = _NEXT.search(link)
             url = match.group(1) if match else None
         if url is not None:
-            raise GuardError("too many pages to read them all")
+            raise ApiError("too many pages to read them all")
         return items
 
     def get_text(self, path: str) -> str | None:

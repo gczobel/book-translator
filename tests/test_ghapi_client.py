@@ -1,4 +1,4 @@
-"""The guard's GitHub client: it holds the token, so its refusals matter."""
+"""The shared GitHub client: it holds the token, so its refusals matter."""
 
 import io
 import json
@@ -9,8 +9,7 @@ from typing import Any
 
 import pytest
 
-from guard.api import HttpApi
-from guard.errors import GuardError
+from ghapi.client import ApiError, HttpApi
 
 API = "https://api.github.com"
 
@@ -81,7 +80,7 @@ def test_a_next_link_to_another_host_is_refused_without_sending_the_token(
 ) -> None:
     evil = '<https://evil.example/steal>; rel="next"'
     transport = _install(monkeypatch, Response([1], link=evil))
-    with pytest.raises(GuardError, match="non-GitHub"):
+    with pytest.raises(ApiError, match="non-GitHub"):
         HttpApi("secret").get_pages("/repos/o/r/pulls/1/files")
     assert len(transport.requests) == 1  # the second request was never made
 
@@ -89,13 +88,13 @@ def test_a_next_link_to_another_host_is_refused_without_sending_the_token(
 def test_endless_pagination_is_an_error_not_a_partial_list(monkeypatch: pytest.MonkeyPatch) -> None:
     link = f'<{API}/x?page=2>; rel="next"'
     _install(monkeypatch, *[Response([0], link=link) for _ in range(100)])
-    with pytest.raises(GuardError, match="too many pages"):
+    with pytest.raises(ApiError, match="too many pages"):
         HttpApi("t").get_pages("/x")
 
 
 def test_a_paginated_endpoint_must_return_a_list(monkeypatch: pytest.MonkeyPatch) -> None:
     _install(monkeypatch, Response({"message": "nope"}))
-    with pytest.raises(GuardError, match="list"):
+    with pytest.raises(ApiError, match="list"):
         HttpApi("t").get_pages("/x")
 
 
@@ -118,6 +117,25 @@ def test_raw_text_is_returned(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_a_path_that_would_leave_github_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     transport = _install(monkeypatch)
-    with pytest.raises(GuardError, match="non-GitHub"):
+    with pytest.raises(ApiError, match="non-GitHub"):
         HttpApi("t").get_json("@evil.example/x")  # api.github.com@evil.example/x
     assert not transport.requests
+
+
+def test_post_json_sends_the_payload_with_the_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = _install(monkeypatch, Response({"number": 5}))
+    assert HttpApi("secret").post_json("/repos/o/r/issues", {"title": "t"}) == {"number": 5}
+    request = transport.requests[0]
+    assert request.get_method() == "POST"
+    assert request.data == b'{"title": "t"}'
+    assert request.get_header("Authorization") == "Bearer secret"
+
+
+def test_a_list_longer_than_the_page_cap_fails_closed_for_every_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The escalation job lists every open issue; hitting the cap must stop it, not truncate.
+    link = f'<{API}/repos/o/r/issues?state=open&page=2>; rel="next"'
+    _install(monkeypatch, *[Response([{"number": n}], link=link) for n in range(100)])
+    with pytest.raises(ApiError, match="too many pages"):
+        HttpApi("t").get_pages("/repos/o/r/issues?state=open")
