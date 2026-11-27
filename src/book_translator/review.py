@@ -82,7 +82,10 @@ def read_choices(db: sqlite3.Connection, path: Path, gate: str) -> dict[str, str
             raise _error(path, id_node, f"card id {id_!r} appears twice")
         seen.add(id_)
         choice = fields.get("choice")
-        if choice is None or (isinstance(choice, yaml.ScalarNode) and choice.tag.endswith(":null")):
+        if choice is None or (
+            isinstance(choice, yaml.ScalarNode)
+            and (choice.tag.endswith(":null") or choice.value == "")
+        ):
             continue
         options = cards[id_][0]
         if not isinstance(choice, yaml.ScalarNode) or choice.value not in options:

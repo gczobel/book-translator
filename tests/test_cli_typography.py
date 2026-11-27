@@ -209,3 +209,16 @@ def test_months_and_days_are_lowercase_inside_a_sentence_but_not_names_or_senten
         assert normalised(ws, text, adapter, capsys) == (expected or text)  # 3.6
         assert normalised(ws, expected or text, adapter, capsys) == (expected or text)
     assert query(ws, "select rule from typography_changes") == [("months_days",)]
+
+
+def test_straight_quotes_continuing_in_the_next_paragraph_are_set_so_qa_can_pass(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+    set_target(ws, BLOCK, 'Dijo: "Algo largo que sigue en el párrafo siguiente.', 0)
+    set_target(ws, source_ids()[2], "»Y así termina lo dicho.")
+
+    qa(ws, adapter, capsys)
+
+    assert target_text(ws, BLOCK) == "Dijo: «Algo largo que sigue en el párrafo siguiente."
+    assert (BLOCK, "quotes") not in findings(ws)

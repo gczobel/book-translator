@@ -132,3 +132,17 @@ def test_the_translated_chapter_titles_reach_the_table_of_contents(
         ncx = z.read("OEBPS/toc.ncx").decode()
     assert "<text>Uno</text>" in ncx
     assert "<text>One</text>" not in ncx
+
+
+def test_export_with_a_jar_but_no_java_is_a_clear_error_not_a_traceback(
+    ws: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    jar = tmp_path / "epubcheck.jar"
+    jar.write_bytes(b"")
+    monkeypatch.setenv("EPUBCHECK", str(jar))
+    monkeypatch.setenv("PATH", "/nonexistent")
+
+    with pytest.raises(SystemExit) as stop:
+        main(["export", str(ws)])
+
+    assert str(stop.value).startswith("error:")

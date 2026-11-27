@@ -92,7 +92,7 @@ def replace_provisional(
     for position, text in db.execute(
         "select position, text from targets where source = ? order by position", (block,)
     ).fetchall():
-        if provisional in text:
+        if provisional and provisional in text:
             db.execute(
                 "update targets set text = ? where source = ? and position = ?",
                 (text.replace(provisional, resolution, 1), block, position),

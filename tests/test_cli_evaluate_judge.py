@@ -204,3 +204,25 @@ def test_the_diagnosis_lists_likely_causes_and_suggested_fixes(ws: Path, ref: Pa
     assert "register drift" in readable
     assert "tighten the polish" in readable
     assert report["cost"]["by_stage"]["diagnosis"] > 0
+
+
+def test_rerunning_the_diagnosis_is_served_from_the_cache(ws: Path, ref: Path) -> None:
+    evaluate(ws, ref, "--diagnose")
+    again = JudgeAdapter()
+
+    report = evaluate(ws, ref, "--diagnose", adapter=again)
+
+    assert again.stages == []
+    assert report["diagnosis"] == [{"cause": "register drift", "fix": "tighten the polish"}]
+
+
+def test_a_missing_adapter_is_refused_before_the_comet_model_runs(ws: Path, ref: Path) -> None:
+    from book_translator.evaluate import EvaluateError
+    from book_translator.evaluate import evaluate as run_evaluate
+
+    comet = FakeComet()
+
+    with pytest.raises(EvaluateError, match="adapter"):
+        run_evaluate(ws, ref, FakeEmbedder(), judge=True, comet=comet)
+
+    assert comet.calls == []

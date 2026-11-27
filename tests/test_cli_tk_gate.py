@@ -212,3 +212,15 @@ def test_the_open_tk_check_refuses_while_any_tk_is_open(tmp_path: Path) -> None:
     main(["approve", str(ws)])
     with sqlite3.connect(ws / "book.sqlite") as db:
         require_no_open_tks(db)
+
+
+def test_an_empty_string_choice_accepts_the_recommendation_like_a_missing_one(
+    tmp_path: Path,
+) -> None:
+    ws = stopped_at_gate(tmp_path, ResolveAdapter([tk()], unsure))
+    edit_choice(ws, "TK-1", "")
+
+    main(["approve", str(ws)])
+
+    (row,) = tks_of(ws)
+    assert (row["resolution"], row["resolver"]) == ("tarde tranquila", "human")

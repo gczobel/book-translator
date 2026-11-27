@@ -85,12 +85,13 @@ def _requote(text: str) -> tuple[str, int] | None:
     return "".join(out), depth
 
 
-def quotes(text: str) -> str:
+def quotes(text: str, continued: bool = False) -> str:
     """Q1-Q4 (3.1): straight and curly quotes are re-set by depth as « » then “ ” then ‘ ’, and a
     period, comma, semicolon or colon inside a closing quote goes outside it. Text whose quotes
-    do not pair up is left alone (the `quotes` check reports it)."""
+    do not pair up is left alone (the `quotes` check reports it), unless the quote left open
+    continues in the next paragraph (`continued`, Q6)."""
     done = _requote(text)
-    return text if done is None or done[1] else done[0]
+    return text if done is None or (done[1] and not continued) else done[0]
 
 
 @check("quotes")
@@ -307,12 +308,13 @@ RULES: list[tuple[str, Callable[[str], str]]] = [
 ]
 
 
-def normalise(text: str) -> list[tuple[str, str, str]]:
-    """Apply every rule in turn: each change as (rule, old, new), the last new being the result."""
+def normalise(text: str, continued: bool = False) -> list[tuple[str, str, str]]:
+    """Apply every rule in turn: each change as (rule, old, new), the last new being the result.
+    `continued` says the next paragraph opens with », continuing a quote left open here."""
     masked, codes = mask(text)
     changes: list[tuple[str, str, str]] = []
     for name, rule in RULES:
-        new = rule(masked)
+        new = quotes(masked, continued) if rule is quotes else rule(masked)
         if new != masked:
             changes.append((name, unmask(masked, codes), unmask(new, codes)))
             masked = new
@@ -335,8 +337,9 @@ def apply(db: sqlite3.Connection, source: Epub, bible: Bible) -> None:
     for block, _, text in stored:
         pieces.setdefault(block, []).append(text)
     with db:
-        for block, position, text in stored:
-            changes = normalise(text)
+        for index, (block, position, text) in enumerate(stored):
+            following = stored[index + 1][2] if index + 1 < len(stored) else ""
+            changes = normalise(text, mask(following)[0].startswith("\u00bb"))
             if not changes:
                 continue
             result = changes[-1][2]

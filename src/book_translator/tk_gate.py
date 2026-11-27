@@ -163,7 +163,7 @@ def _fix_earlier_chapters(
     old: list[str],
     chosen: str,
 ) -> None:
-    wanted = sorted(set(old) - {chosen}, key=len, reverse=True)
+    wanted = sorted({o for o in old if o} - {chosen}, key=len, reverse=True)
     if not wanted:
         return
     pattern = re.compile("|".join(rf"(?<!\w){re.escape(o)}(?!\w)" for o in wanted))

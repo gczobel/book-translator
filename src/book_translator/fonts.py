@@ -12,7 +12,7 @@ from urllib.parse import unquote
 from fontTools.ttLib import TTFont
 from lxml import etree
 
-from book_translator.epub import Epub
+from book_translator.epub import Epub, EpubError
 
 _OPF = "{http://www.idpf.org/2007/opf}"
 _DC = "{http://purl.org/dc/elements/1.1/}"
@@ -39,13 +39,17 @@ def check_font_coverage(epub: Epub, language: str) -> None:
     problems = []
     obfuscated = _obfuscated(epub)
     for name in _embedded_fonts(epub):
-        data = epub.read(name)
+        try:
+            data = epub.read(name)
+        except EpubError:
+            problems.append(f"{name} is in the manifest but missing from the archive")
+            continue
         if name in obfuscated:
             if obfuscated[name] != _IDPF:
                 problems.append(f"{name} is obfuscated with an unsupported algorithm")
                 continue
             data = _idpf_deobfuscate(data, _unique_identifier(epub))
-        cmap = TTFont(io.BytesIO(data), lazy=True).getBestCmap()
+        cmap = TTFont(io.BytesIO(data), lazy=True, fontNumber=0).getBestCmap() or {}
         missing = [c for c in required if ord(c) not in cmap]
         if missing:
             problems.append(f"{name} lacks {' '.join(missing)}")

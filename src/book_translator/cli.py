@@ -1,4 +1,4 @@
-"""Command-line interface. Only `init` exists so far."""
+"""Command-line interface: init, run, status, approve, export and evaluate."""
 
 import argparse
 import json
@@ -16,7 +16,7 @@ from book_translator.config import (
     STAGE_MODELS,
     VARIETIES,
 )
-from book_translator.epub import open_epub
+from book_translator.epub import EpubError, open_epub
 from book_translator.epubcheck import EpubcheckNotFoundError
 from book_translator.estimate import estimate
 from book_translator.evaluate import REPORT_MD, EvaluateError, evaluate
@@ -107,6 +107,8 @@ def main(
     if args.command == "init":
         _init(args)
     elif args.command == "run":
+        if not (args.workspace / workspace.DB_NAME).is_file():
+            sys.exit(f"error: not a workspace: {args.workspace}")
         if adapter is None:
             adapter = _production_adapter()
             if search is None:
@@ -140,7 +142,14 @@ def _export(path: Path) -> None:
     except ValidationFailedError as exc:
         print(exc.report, end="")
         sys.exit("error: epubcheck failed; the report is in " + str(path / REPORT_NAME))
-    except (ExportError, EpubcheckNotFoundError, FontCoverageError, InlineCodeError) as exc:
+    except (
+        ExportError,
+        EpubcheckNotFoundError,
+        FontCoverageError,
+        InlineCodeError,
+        EpubError,
+        OSError,
+    ) as exc:
         sys.exit(f"error: {exc}")
     print(f"Exported: {out}\nepubcheck report: {path / REPORT_NAME}")
 

@@ -82,3 +82,32 @@ def test_invalid_output_is_retried_a_bounded_number_of_times(tmp_path: Path) -> 
     result = llm.call(make_request(), Greeting)
 
     assert result.output == Greeting(text="ok")
+
+
+def test_the_model_is_told_the_output_schema(tmp_path: Path) -> None:
+    seen: list[str] = []
+    model = scripted(['{"text": "ok"}'], seen)
+    llm = LLM(PydanticAIAdapter(lambda name: model), tmp_path / "b.sqlite")
+
+    llm.call(make_request(), Greeting)
+
+    assert '"text"' in seen[0]
+    assert "schema" in seen[0].lower()
+
+
+def test_a_fenced_json_answer_is_accepted(tmp_path: Path) -> None:
+    model = scripted(['```json\n{"text": "ok"}\n```'])
+    llm = LLM(PydanticAIAdapter(lambda name: model), tmp_path / "b.sqlite", max_attempts=1)
+
+    assert llm.call(make_request(), Greeting).output == Greeting(text="ok")
+
+
+def test_a_retry_tells_the_model_what_was_wrong(tmp_path: Path) -> None:
+    seen: list[str] = []
+    model = scripted(['{"wrong": 1}', '{"text": "ok"}'], seen)
+    llm = LLM(PydanticAIAdapter(lambda name: model), tmp_path / "b.sqlite", max_attempts=2)
+
+    llm.call(make_request(), Greeting)
+
+    assert "validation error" in seen[1].lower()
+    assert "validation error" not in seen[0].lower()

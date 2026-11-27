@@ -26,10 +26,18 @@ class PydanticAIAdapter:
         self._resolve = resolve
 
     def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
-        agent = Agent(
-            self._resolve(request.model),
-            instructions=f"{request.prompt}\n\n{request.bible_slice}",
-        )
+        instructions = f"{request.prompt}\n\n{request.bible_slice}"
+        if request.output_schema:
+            instructions += (
+                "\n\nAnswer with a single JSON object and nothing else, valid against this "
+                f"JSON schema:\n{request.output_schema}"
+            )
+        if request.feedback:
+            instructions += (
+                "\n\nYour previous answer failed validation (validation error below). "
+                f"Fix it:\n{request.feedback}"
+            )
+        agent = Agent(self._resolve(request.model), instructions=instructions)
         result = agent.run_sync(request.source_text)
         usage = result.usage
         return RawAnswer(result.output, usage.input_tokens, usage.output_tokens)
