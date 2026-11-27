@@ -118,3 +118,17 @@ def test_the_target_language_setting_names_the_output_file(
     tamper(ws, "update settings set value = 'ja' where key = 'target'")
     main(["export", str(ws)])
     assert (ws / "ws.ja.epub").is_file()
+
+
+def test_the_translated_chapter_titles_reach_the_table_of_contents(
+    ws: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_epubcheck(tmp_path, monkeypatch)
+    set_target(ws, source_ids()[0], "Uno")
+
+    main(["export", str(ws)])
+
+    with zipfile.ZipFile(ws / "ws.es.epub") as z:
+        ncx = z.read("OEBPS/toc.ncx").decode()
+    assert "<text>Uno</text>" in ncx
+    assert "<text>One</text>" not in ncx

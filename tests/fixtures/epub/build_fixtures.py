@@ -299,6 +299,56 @@ BRAND_INFO = page(
 )
 BRAND_EXLIBRIS = page('<div><img src="images/ex_libris.png" alt="Ex libris"/></div>\n')
 
+# The end-to-end book (tests/test_e2e.py): ePubLibre branding, a credits page, a chapter with
+# a two-turn speech, classes, ids and a note reference, a scene break, and a notes page.
+E2E_FILES = [
+    ("tp", "titlepage.xhtml"),
+    ("cr", "credits.xhtml"),
+    ("c1", "ch1.xhtml"),
+    ("c2", "ch2.xhtml"),
+    ("n", "notes.xhtml"),
+]
+E2E_OPF = (
+    OPF.replace(
+        "    <dc:language>en</dc:language>\n",
+        "    <dc:language>en</dc:language>\n    <dc:publisher>ePubLibre</dc:publisher>\n"
+        '    <dc:identifier opf:scheme="EPL">1234</dc:identifier>\n',
+    )
+    .replace(
+        '    <item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>\n'
+        '    <item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/>\n',
+        '    <item id="epl" href="images/EPL_logo.png" media-type="image/png"/>\n'
+        + "".join(
+            f'    <item id="{i}" href="{h}" media-type="application/xhtml+xml"/>\n'
+            for i, h in E2E_FILES
+        ),
+    )
+    .replace(
+        '    <itemref idref="c1"/>\n    <itemref idref="c2"/>\n',
+        "".join(f'    <itemref idref="{i}"/>\n' for i, _ in E2E_FILES),
+    )
+)
+E2E_TITLE = page(
+    '<div class="tlogo"><img src="images/EPL_logo.png" alt="ePubLibre"/></div>\n'
+    '<h1 class="ttitulo">Synthetic Tale</h1>\n'
+)
+E2E_CREDITS = page("<p>First published as Un Cuento. Copyright Nobody.</p>\n")
+E2E_1 = page(
+    '<h1 id="ch1">One</h1>\n'
+    '<p class="first" id="p1">It was a quiet evening in the old house.</p>\n'
+    '<p class="speech" id="p2">"Who is there?" asked Hiram. "Nobody," said the voice.</p>\n'
+    '<p id="p3">Born in the town.<a id="rf1" href="notes.xhtml#nt1">[1]</a></p>\n'
+    '<hr class="break"/>\n'
+    '<p id="p4">The morning came slowly.</p>\n'
+)
+E2E_2 = page(
+    '<h1 id="ch2">Two</h1>\n<p id="q1">The next day was <em>loud</em>.</p>\n'
+    '<p class="last" id="q2">Nobody remembered the voice.</p>\n'
+)
+E2E_NOTES = page(
+    '<h2>Notes</h2>\n<p id="nt1">1. A small town.<a href="ch1.xhtml#rf1">back</a></p>\n'
+)
+
 # EPUB 3 with semantic markup: file names say nothing, `epub:type` does. Chapters come from
 # the `nav.xhtml` (no NCX); notes use `noteref` references and `footnote` asides.
 EPUB3_OPF = """<?xml version="1.0" encoding="UTF-8"?>
@@ -446,6 +496,18 @@ def main() -> None:
         },
         opf=BRAND_OPF,
         ncx=BRAND_NCX,
+    )
+    write(
+        "e2e.epub",
+        {
+            "titlepage.xhtml": E2E_TITLE,
+            "credits.xhtml": E2E_CREDITS,
+            "ch1.xhtml": E2E_1,
+            "ch2.xhtml": E2E_2,
+            "notes.xhtml": E2E_NOTES,
+            "images/EPL_logo.png": PNG,
+        },
+        opf=E2E_OPF,
     )
     write("epub3.epub", EPUB3_PARTS, opf=EPUB3_OPF, nav=EPUB3_NAV, ncx=None)
 
