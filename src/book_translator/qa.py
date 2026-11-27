@@ -17,6 +17,7 @@ from pathlib import Path
 from book_translator.bible import Bible
 from book_translator.epub import Epub
 from book_translator.inline import EncodedBlock, InlineCodeError
+from book_translator.tolerance import plain as fold
 from book_translator.workspace import DB_NAME
 
 STAGE = "qa"
@@ -73,6 +74,30 @@ def contains(text: str, phrase: str) -> bool:
     )
 
 
+_ARTICLE = re.compile(r"^(?:el|la|los|las)\s+", re.IGNORECASE)
+_NOTE = re.compile(r"\s*\([^)]*\)")
+
+
+def renderings(rendering: str) -> list[str]:
+    """The wordings a bible rendering allows: `a / b` is either one, a note in brackets is not
+    part of the wording, and a leading article may change or go (`el X` in `al X`, `del X`)."""
+    found = []
+    for alternative in rendering.split(" / "):
+        wording = _NOTE.sub("", alternative).strip()
+        if not wording:
+            continue
+        found.append(wording)
+        bare = _ARTICLE.sub("", wording)
+        if bare != wording and bare:
+            found.append(bare)
+    return found
+
+
+def rendered(text: str, rendering: str) -> bool:
+    """Whether `text` carries `rendering`, in any of the wordings it allows."""
+    return any(contains(text, wording) for wording in renderings(rendering))
+
+
 Check = Callable[[QAContext], list[Finding]]
 CHECKS: dict[str, Check] = {}
 
@@ -93,7 +118,7 @@ def glossary_renderings(context: QAContext) -> list[Finding]:
         for block in context.sources
         for entry in context.bible.glossary
         if contains(source_text(context, block), entry.term)
-        and not contains(target_text(context, block), entry.rendering)
+        and not rendered(target_text(context, block), entry.rendering)
     ]
 
 
@@ -104,7 +129,8 @@ def banned_variants(context: QAContext) -> list[Finding]:
         for block in context.sources
         for entry in context.bible.glossary
         for variant in entry.banned_variants
-        if contains(target_text(context, block), variant)
+        if contains(source_text(context, block), entry.term)
+        and contains(target_text(context, block), variant)
     ]
 
 
@@ -149,12 +175,15 @@ def _digits(number: str) -> str:
     return re.sub(r"\D", "", number)
 
 
+_HONORIFIC_DOT = re.compile(r"\b(?:Mr|Mrs|Ms|Dr|Rev|Hon|St)\.$")
+
+
 def _names(text: str) -> list[str]:
     """Capitalised words that are not merely the first word of a sentence."""
     found = []
     for match in _NAME.finditer(text):
         before = text[: match.start()].rstrip()
-        if before and before[-1] not in _SENTENCE_END:
+        if before and (before[-1] not in _SENTENCE_END or _HONORIFIC_DOT.search(before)):
             found.append(re.sub(r"['\u2019]s$", "", match.group()))
     return found
 
@@ -172,17 +201,75 @@ def numbers(context: QAContext) -> list[Finding]:
     return found
 
 
+_HONORIFICS = {"Mr", "Mrs", "Miss", "Ms", "Sir", "Lord", "Lady", "Dr", "Rev", "Hon", "Messrs"}
+_TITLES = {  # ranks and roles that have a Spanish word of their own
+    "Duke",
+    "Duchess",
+    "Dowager",
+    "Earl",
+    "Count",
+    "Baron",
+    "Prince",
+    "Princess",
+    "King",
+    "Queen",
+    "Ghost",
+    "Minister",
+    "Colonel",
+    "Captain",
+    "General",
+    "Reverend",
+    "Bishop",
+    "Doctor",
+}
+_ARTICLE_START = re.compile(r"^(?:the|a|an)\s", re.IGNORECASE)
+
+
+def _cast_names(context: QAContext) -> set[str]:
+    """The capitalised words of the cast's names and aliases that stay as they are: not those of a
+    description (`the American Minister`), an honorific or a single letter."""
+    found = set()
+    for member in context.bible.cast:
+        for label in (member.name, *member.aliases):
+            if _ARTICLE_START.match(label):
+                continue
+            found |= {
+                w for w in _NAME.findall(label) if len(w) > 1 and w not in _HONORIFICS | _TITLES
+            }
+    return found
+
+
+def _in_target(target: str, name: str) -> bool:
+    """The name is there, whatever its accents, case or a plural s."""
+    folded = fold(target)
+    return any(contains(folded, form) for form in {fold(name), fold(name).removesuffix("s")})
+
+
 @check("names")
 def names(context: QAContext) -> list[Finding]:
-    """Capitalised names of the source stay in the target, or appear as their glossary rendering."""
-    rendered = {e.term: e.rendering for e in context.bible.glossary}
+    """A character's name in the source stays in the target, or appears as its glossary rendering.
+    Other capitalised words (places, titles, nationalities) have Spanish forms of their own and
+    are the glossary check's business."""
+    rendering = {e.term: e.rendering for e in context.bible.glossary}
+    cast = _cast_names(context)
     found = []
     for block in context.sources:
         target = target_text(context, block)
         for name in dict.fromkeys(_names(source_text(context, block))):
-            if not contains(target, name) and not contains(target, rendered.get(name, "")):
-                found.append(Finding("names", block, f"the name {name!r} is not in the target"))
+            if name in cast and not _in_target(target, name):
+                if not rendered(target, rendering.get(name, "")):
+                    found.append(Finding("names", block, f"the name {name!r} is not in the target"))
     return found
+
+
+def _carries_exactly(text: str, rendering: str) -> bool:
+    """A wording of the rendering is there, whole words, with its own spelling (a capital to open
+    a sentence is the one thing that may differ)."""
+    return any(
+        re.search(rf"(?<!\w){re.escape(w[:1].upper() + w[1:])}(?!\w)", text) is not None
+        or re.search(rf"(?<!\w){re.escape(w)}(?!\w)", text) is not None
+        for w in renderings(rendering)
+    )
 
 
 @check("motif")
@@ -193,7 +280,7 @@ def motifs(context: QAContext) -> list[Finding]:
         for block in context.sources
         for m in context.bible.motifs
         if contains(source_text(context, block), m.name)
-        and m.locked_rendering not in target_text(context, block)
+        and not _carries_exactly(target_text(context, block), m.locked_rendering)
     ]
 
 

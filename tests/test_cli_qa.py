@@ -131,15 +131,15 @@ def test_numbers_and_names_of_the_source_must_reach_the_target(
     adapter = CountingAdapter(glossary=glossary)
     ws = translate(tmp_path, adapter)
     block, other = source_ids()[1], source_ids()[2]
-    set_source(ws, block, "It was 1,200 quiet evenings in Hiram's town. Then Mary left.")
-    set_target(ws, block, "Fueron 1.200 tardes en el pueblo de Hiram el Viejo. Mary se fue.")
+    set_source(ws, block, "It was 1,200 quiet evenings in Hiram's town. Then Simon left.")
+    set_target(ws, block, "Fueron 1.200 tardes en el pueblo de Hiram el Viejo. Simon se fue.")
     qa(ws, adapter, capsys)
     assert findings(ws) == []  # separators, glossary renderings and names are allowed
 
     set_target(ws, block, "Fueron muchas tardes tranquilas en el pueblo. Entonces se fue.")
     out = qa(ws, adapter, capsys)
 
-    assert "'Mary'" in out  # a name with no glossary entry must be there itself
+    assert "'Simon'" in out  # a cast name with no glossary entry must be there itself
     assert (block, "numbers") in findings(ws)
     assert (block, "names") in findings(ws)
     assert [f for f in findings(ws) if f[0] == other] == []
