@@ -30,7 +30,7 @@ class DraftedTK(BaseModel):
     span: str  # the doubtful stretch of that block, as it reads in the source
     type: TKType
     excerpt: str  # the source text around the span
-    provisional: str  # the rendering the draft carries meanwhile
+    provisional: str = Field(min_length=1)  # the rendering the draft carries meanwhile
     candidates: list[Candidate] = Field(min_length=2, max_length=3)
     recommendation: str  # one of the candidates' renderings
     confidence: float = Field(ge=0.0, le=1.0)

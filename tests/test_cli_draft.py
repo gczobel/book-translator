@@ -335,3 +335,12 @@ def test_status_reports_the_draft_stage(ws: Path, capsys: pytest.CaptureFixture[
     out = capsys.readouterr().out
     assert "Stage: tk_resolution (done)" in out
     assert "Review gate: tk is waiting" in out
+
+
+def test_a_tk_with_an_empty_provisional_rendering_is_retried(ws: Path) -> None:
+    adapter = DraftAdapter(with_tks([tk(provisional="")]))
+
+    with pytest.raises(InvalidOutputError):
+        drafted(ws, adapter)
+
+    assert adapter.draft_attempts == 3
