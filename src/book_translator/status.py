@@ -18,6 +18,7 @@ STAGES = (
     "draft",
     "tk_resolution",
     "fidelity",
+    "polish",
 )
 FINISHED = ("done", "nothing found")
 

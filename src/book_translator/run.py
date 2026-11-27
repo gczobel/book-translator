@@ -21,6 +21,7 @@ from book_translator.llm import LLM, Adapter
 from book_translator.search import Search
 from book_translator.stages import draft as drafting
 from book_translator.stages import fidelity as fidelity_check
+from book_translator.stages import polish as polishing
 from book_translator.stages import resolve as resolving
 from book_translator.stages.complete import completion_request, completion_schema, merged
 from book_translator.stages.consolidate import consolidation_request
@@ -70,6 +71,7 @@ def run(workspace: Path, adapter: Adapter, search: Search | None = None) -> None
         _tk_resolution(db, workspace, llm)
         _tk_gate(db, workspace)
         _fidelity(db, workspace, llm)
+        _polish(db, workspace, llm)
     finally:
         db.close()
 
@@ -191,6 +193,18 @@ def _fidelity(db: sqlite3.Connection, workspace: Path, llm: LLM) -> None:
     source = open_epub(workspace / SOURCE_NAME)
     fidelity_check.review(db, llm, source, bible, STAGE_MODELS["fidelity"])
     _set_status(db, "fidelity", "done")
+
+
+def _polish(db: sqlite3.Connection, workspace: Path, llm: LLM) -> None:
+    if _status(db, "fidelity") != "done" or _status(db, "polish") == "done":
+        return
+    with db:
+        polishing.create_tables(db)
+    _set_status(db, "polish", "running")
+    bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
+    source = open_epub(workspace / SOURCE_NAME)
+    polishing.polish(db, llm, source, bible, STAGE_MODELS["polish"])
+    _set_status(db, "polish", "done")
 
 
 def _tk_gate(db: sqlite3.Connection, workspace: Path) -> None:
