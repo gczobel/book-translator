@@ -44,8 +44,9 @@ def export(workspace: Path, validator: Validator | None = None) -> Path:
         source = open_epub(workspace / SOURCE_NAME)
         target = setting(db, "target") or "es"
         credits = _credits(source)  # before the edits replace the original title
+        titles = _chapter_titles(db, source)  # before the rebuild replaces the source headings
         _rebuild(db, source)
-        _synchronize(db, source, target)
+        _synchronize(db, source, target, titles)
         add_credits_page(source, credits)
         remove_branding(source, EPUBLIBRE)
     finally:
@@ -87,7 +88,7 @@ def _metadata(source: Epub, tag: str) -> str:
     return " ".join((root.findtext(f".//{_DC}{tag}") or "").split())
 
 
-def _synchronize(db: sqlite3.Connection, source: Epub, target: str) -> None:
+def _chapter_titles(db: sqlite3.Connection, source: Epub) -> dict[str, str]:
     targets = _targets(db)
     titles: dict[str, str] = {}
     for chapter in source.book().chapters:
@@ -95,6 +96,12 @@ def _synchronize(db: sqlite3.Connection, source: Epub, target: str) -> None:
             for block in scene.blocks:
                 if block.kind == "heading" and chapter.title == block.text and block.id in targets:
                     titles[block.text] = plain(" ".join(targets[block.id]))
+    return titles
+
+
+def _synchronize(
+    db: sqlite3.Connection, source: Epub, target: str, titles: dict[str, str]
+) -> None:
     row = db.execute(
         "select rendering from glossary where term = ?", (_metadata(source, "title"),)
     ).fetchone()
