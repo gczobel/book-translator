@@ -33,7 +33,10 @@ def test_names_are_compared_the_way_pypi_does() -> None:
 def test_dependency_groups_and_optional_dependencies_count() -> None:
     head = PYPROJECT + '[dependency-groups]\ndev = ["pytestt>=1", {include-group = "x"}]\n'
     assert new_names(PYPROJECT, head, LOCK, LOCK) == ["pytestt"]
-    head = PYPROJECT + '[project.optional-dependencies]\nextra = ["foo[bar]>=1; python_version>\'3\'"]\n'
+    head = (
+        PYPROJECT
+        + "[project.optional-dependencies]\nextra = [\"foo[bar]>=1; python_version>'3'\"]\n"
+    )
     assert new_names(PYPROJECT, head, LOCK, LOCK) == ["foo"]
 
 

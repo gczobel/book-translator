@@ -64,9 +64,10 @@ def test_the_same_patch_gives_the_same_tree(repo: tuple[Path, str]) -> None:
     directory, base = repo
     (directory / "src" / "a.py").write_text("x = 9\ny = 2\n")
     patch = make_patch(directory)
-    assert build_commit(str(directory), base, patch, "m")[1] == build_commit(
-        str(directory), base, patch, "m"
-    )[1]
+    assert (
+        build_commit(str(directory), base, patch, "m")[1]
+        == build_commit(str(directory), base, patch, "m")[1]
+    )
 
 
 def test_a_patch_that_does_not_apply_is_refused(repo: tuple[Path, str]) -> None:
@@ -74,6 +75,15 @@ def test_a_patch_that_does_not_apply_is_refused(repo: tuple[Path, str]) -> None:
     bad = "diff --git a/nope b/nope\n--- a/nope\n+++ b/nope\n@@ -1 +1 @@\n-a\n+b\n"
     with pytest.raises(PatchError):
         build_commit(str(directory), base, bad, "m")
+
+
+def test_a_patch_too_big_for_one_environment_variable_is_refused(
+    repo: tuple[Path, str],
+) -> None:
+    directory, base = repo
+    (directory / "src" / "a.py").write_text("y = 1\n" * 40_000)
+    with pytest.raises(PatchError):
+        build_commit(str(directory), base, make_patch(directory), "m")
 
 
 def test_an_empty_patch_is_refused(repo: tuple[Path, str]) -> None:

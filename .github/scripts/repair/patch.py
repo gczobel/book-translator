@@ -15,7 +15,7 @@ import tempfile
 from dataclasses import dataclass, field
 
 _SHA = re.compile(r"[0-9a-f]{40}")
-MAX_PATCH_BYTES = 400_000  # a job output may be 1 MB, and base64 adds a third
+MAX_PATCH_BYTES = 90_000  # its base64 must fit the 128 KB limit on one environment variable
 
 
 class PatchError(Exception):
