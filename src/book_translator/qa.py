@@ -185,6 +185,18 @@ def names(context: QAContext) -> list[Finding]:
     return found
 
 
+@check("motif")
+def motifs(context: QAContext) -> list[Finding]:
+    """Wherever the source uses a motif, the target carries its locked rendering, exactly."""
+    return [
+        Finding("motif", block, f"motif {m.name!r} must be rendered {m.locked_rendering!r}")
+        for block in context.sources
+        for m in context.bible.motifs
+        if contains(source_text(context, block), m.name)
+        and m.locked_rendering not in target_text(context, block)
+    ]
+
+
 def length_band(db: sqlite3.Connection) -> tuple[float, float]:
     row = db.execute("select value from settings where key = 'qa_length_band'").fetchone()
     if row is None:

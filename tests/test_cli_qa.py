@@ -34,7 +34,10 @@ def translate(tmp_path: Path, adapter: CountingAdapter, *extra: str) -> Path:
     main(["approve", str(ws)])  # analysis gate
     main(["run", str(ws)], adapter=adapter)
     main(["approve", str(ws)])  # TK gate
-    main(["run", str(ws)], adapter=adapter)
+    try:
+        main(["run", str(ws)], adapter=adapter)
+    except SystemExit:  # QA may already fail on the drafted text
+        pass
     return ws
 
 
@@ -145,6 +148,25 @@ def test_numbers_and_names_of_the_source_must_reach_the_target(
     assert (block, "numbers") in findings(ws)
     assert (block, "names") in findings(ws)
     assert [f for f in findings(ws) if f[0] == other] == []
+
+
+def test_a_locked_motif_must_be_rendered_the_same_every_time(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    motifs = [{"name": "quiet evening", "locked_rendering": "tarde en calma"}]
+    adapter = CountingAdapter(motifs=motifs)
+    ws = translate(tmp_path, adapter)
+    first, second = source_ids()[1], source_ids()[2]
+    set_source(ws, second, "Another quiet evening came.")
+    set_target(ws, first, "Era una tarde en calma.")
+    set_target(ws, second, "Llegó otra tarde en calma.")
+    qa(ws, adapter, capsys)
+    assert findings(ws) == []
+
+    set_target(ws, second, "Llegó otra noche tranquila.")
+    qa(ws, adapter, capsys)
+
+    assert findings(ws) == [(second, "motif")]
 
 
 def test_the_length_band_is_configurable(
