@@ -36,3 +36,20 @@ def percentage(value: Any) -> Any:
     if isinstance(value, int | float) and not isinstance(value, bool) and 1 < value <= 100:
         return value / 100
     return value
+
+
+def in_order(entries: Any, ids: list[str], key: str) -> Any:
+    """Entries answering each of `ids` exactly once come back in the order of `ids`, strays
+    dropped. Anything else (a gap, a duplicate) is returned as given, for the validators."""
+    if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+        return entries
+    wanted = set(ids)
+    kept = [
+        {**e, key: e[key].strip()}
+        for e in entries
+        if isinstance(e.get(key), str) and e[key].strip() in wanted
+    ]
+    if sorted(e[key] for e in kept) != sorted(ids):
+        return entries
+    by_id = {e[key]: e for e in kept}
+    return [by_id[i] for i in ids]

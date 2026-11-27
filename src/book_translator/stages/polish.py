@@ -10,6 +10,7 @@ call is retried. Each changed target block is recorded for the quality report.
 import json
 import sqlite3
 from collections import defaultdict
+from typing import Any
 
 from pydantic import BaseModel, model_validator
 
@@ -20,6 +21,7 @@ from book_translator.llm import LLM, LLMRequest
 from book_translator.progress import Tick, no_tick
 from book_translator.stages.context import bible_slice
 from book_translator.stages.fidelity import check_rewrite, scenes
+from book_translator.tolerance import in_order
 
 PROMPT_VERSION = "polish-v1"
 _PROMPT = (
@@ -57,6 +59,13 @@ def polish_schema(
     """The polish's schema for this scene: the same blocks, legal, and within the bible."""
 
     class ScenePolished(Polished):
+        @model_validator(mode="before")
+        @classmethod
+        def _settle_order(cls, data: Any) -> Any:
+            if not isinstance(data, dict):
+                return data
+            return {**data, "blocks": in_order(data.get("blocks"), ids, "id")}
+
         @model_validator(mode="after")
         def _faithful_to_the_scene(self) -> "ScenePolished":
             if [b.id for b in self.blocks] != ids:

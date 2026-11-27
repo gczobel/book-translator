@@ -65,6 +65,18 @@ def run_to_the_end(tmp_path: Path, adapter: PolishAdapter) -> Path:
     return ws
 
 
+def test_a_polish_answering_the_blocks_out_of_order_is_accepted(tmp_path: Path) -> None:
+    def reversed_answer(scene: dict[str, Any], attempt: int) -> dict[str, Any]:
+        answer = unchanged(scene, attempt)
+        answer["blocks"].reverse()
+        return answer
+
+    adapter = PolishAdapter(reversed_answer)
+    run_to_the_end(tmp_path, adapter)
+
+    assert len(adapter.polish_requests) == len(scenes())
+
+
 def test_a_polished_block_replaces_its_target_and_is_recorded(tmp_path: Path) -> None:
     block = source_ids()[1]
     adapter = PolishAdapter(rewriting(block, [["It was a quiet, still evening."]]))

@@ -94,6 +94,34 @@ def test_a_block_may_become_several_target_blocks_in_order(ws: Path) -> None:
     assert [r[0] for r in rows] == ["It was a quiet evening.", "second", "third"]
 
 
+def test_blocks_answered_out_of_order_with_a_stray_extra_are_stored_in_order(ws: Path) -> None:
+    def shuffled(request: LLMRequest, attempt: int) -> str:
+        draft = json.loads(echo_draft(request))
+        draft["blocks"].reverse()
+        draft["blocks"].append({"source": " not-a-block ", "targets": ["x"]})
+        return json.dumps(draft)
+
+    adapter = DraftAdapter(shuffled)
+    drafted(ws, adapter)
+
+    assert adapter.draft_attempts == len(adapter.draft_requests)
+    assert {r[0] for r in query(ws, "select source from targets")} == set(source_ids())
+    assert "x" not in {r[0] for r in query(ws, "select text from targets")}
+
+
+def test_a_tk_for_a_block_outside_the_passage_is_dropped_not_fatal(ws: Path) -> None:
+    def stray(request: LLMRequest, attempt: int) -> str:
+        draft = json.loads(echo_draft(request))
+        draft["tks"] = [tk(block="somewhere-else")]
+        return json.dumps(draft)
+
+    adapter = DraftAdapter(stray)
+    drafted(ws, adapter)
+
+    assert adapter.draft_attempts == len(adapter.draft_requests)
+    assert query(ws, "select count(*) from tks") == [(0,)]
+
+
 def test_a_block_left_out_is_retried(ws: Path) -> None:
     def forgetful(request: LLMRequest, attempt: int) -> str:
         answer = json.loads(echo_draft(request))
