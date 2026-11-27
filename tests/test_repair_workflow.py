@@ -5,7 +5,7 @@ from typing import Any
 
 import yaml
 
-WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "repair.yml"
+WORKFLOW = Path(__file__).resolve().parent.parent / "docs" / "agents" / "pending" / "repair.yml"
 TEXT = WORKFLOW.read_text()
 LOADED: Any = yaml.safe_load(TEXT)
 JOBS: dict[str, dict[str, Any]] = LOADED["jobs"]

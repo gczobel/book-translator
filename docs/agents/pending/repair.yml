@@ -1,3 +1,7 @@
+# NOT ACTIVE. Held back from .github/workflows/ on purpose (see the issue "enable the repair
+# workflow"): GitHub blocks anthropics/claude-code-action, oven-sh/setup-bun and actions/setup-node
+# (not in the allowed-actions list), and the egress-limiting step below is a deliberate failure
+# until a real mechanism exists. Move this file to .github/workflows/ only when both are fixed.
 name: repair
 
 # A red Dependabot or release-please PR is repaired by an agent that holds no write credentials,
