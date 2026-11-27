@@ -1,6 +1,7 @@
 """Command-line interface. Only `init` exists so far."""
 
 import argparse
+import json
 import os
 import sys
 from collections.abc import Sequence
@@ -158,6 +159,12 @@ def _evaluate(args: argparse.Namespace, adapter: Adapter | None, embedder: Embed
         sys.exit(f"error: {exc}")
     except CapReachedError as exc:
         sys.exit(f"stopped: {exc}")
+    if not json.loads(out.read_text())["evaluation_mode"]:
+        print(
+            "warning: this workspace was not initialised with `init --evaluation`, so"
+            " established-terminology lookups may have used the web; scores may be inflated",
+            file=sys.stderr,
+        )
     print(f"Quality report: {out}\nReadable copy: {path / REPORT_MD}")
 
 

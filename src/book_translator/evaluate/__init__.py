@@ -99,7 +99,7 @@ def evaluate(
     db = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
     try:
         target = setting(db, "target") or "es"
-        evaluation_mode = setting(db, "evaluation") is not None
+        evaluation_mode = setting(db, "evaluation") != ""
         output = workspace / f"{workspace.resolve().name}.{target}.epub"
         if not output.is_file():
             raise EvaluateError("no output to evaluate: run `book-translator export` first")

@@ -113,6 +113,33 @@ def test_without_the_flag_no_judge_call_is_made(ws: Path, ref: Path) -> None:
     assert adapter.stages == []
 
 
+def test_a_workspace_not_initialised_for_evaluation_is_reported_and_warned_about(
+    ws: Path, ref: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    report = evaluate(ws, ref)
+
+    assert report["evaluation_mode"] is False
+    assert "--evaluation" in capsys.readouterr().err
+    assert "evaluation mode: off" in (ws / "quality-report.md").read_text().lower()
+
+
+def test_an_evaluation_workspace_is_reported_without_a_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ref: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake_epubcheck(tmp_path, monkeypatch)
+    path = translate(tmp_path, CountingAdapter(), "--evaluation")
+    set_all_targets(path)
+    main(["run", str(path)], adapter=CountingAdapter())
+    main(["export", str(path)])
+    capsys.readouterr()
+
+    report = evaluate(path, ref)
+
+    assert report["evaluation_mode"] is True
+    assert "--evaluation" not in capsys.readouterr().err
+    assert "evaluation mode: on" in (path / "quality-report.md").read_text().lower()
+
+
 def test_the_diagnosis_lists_likely_causes_and_suggested_fixes(ws: Path, ref: Path) -> None:
     adapter = JudgeAdapter()
 

@@ -53,7 +53,13 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         f"Output: {report['output']}  ",
         f"Reference: {report['reference']}  ",
-        f"chrF overall: {report['chrf_overall']}",
+        f"chrF overall: {report['chrf_overall']}  ",
+        "Evaluation mode: "
+        + (
+            "on (established-terminology lookups were off)"
+            if report["evaluation_mode"]
+            else "OFF (established-terminology lookups were allowed: scores may be inflated)"
+        ),
         "",
         "## Per chapter (chrF)",
         "",
