@@ -52,7 +52,7 @@ module = ["fontTools.*"]
 ignore_missing_imports = true  # fontTools ships no type information
 
 [[tool.mypy.overrides]]
-module = ["sentence_transformers.*"]
+module = ["sentence_transformers.*", "comet.*"]
 ignore_missing_imports = true  # optional dependency, not installed in the dev environment
 
 [tool.ruff]
