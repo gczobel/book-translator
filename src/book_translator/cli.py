@@ -53,6 +53,13 @@ def _parser() -> argparse.ArgumentParser:
         default=DEFAULT_FIDELITY_RETRIES,
         help="times to correct and re-check a scene the polish made drift (default: 2)",
     )
+    init.add_argument(
+        "--qa-length-band",
+        type=float,
+        nargs=2,
+        metavar=("MIN", "MAX"),
+        help="QA: allowed target/source length ratio per block (default: 0.5 2.0)",
+    )
     run_cmd = sub.add_parser("run", help="advance the book through its stages (resumable)")
     run_cmd.add_argument("workspace", type=Path)
     run_cmd.add_argument("--cap", type=float, help="set a new spending cap in USD before running")
@@ -113,6 +120,8 @@ def _init(args: argparse.Namespace) -> None:
     path: Path = args.workspace or Path(epub.stem)
     settings = {"variety": args.variety, "target": args.target, "cap_usd": f"{args.cap:.2f}"}
     settings["fidelity_retries"] = str(max(args.fidelity_retries, 0))
+    if args.qa_length_band:
+        settings["qa_length_band"] = ",".join(str(v) for v in args.qa_length_band)
     if args.evaluation:
         settings["evaluation"] = "1"
     if args.skip_analysis_gate:

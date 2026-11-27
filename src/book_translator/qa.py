@@ -23,6 +23,9 @@ from book_translator.workspace import DB_NAME
 STAGE = "qa"
 
 
+DEFAULT_LENGTH_BAND = (0.5, 2.0)
+
+
 class QAFailedError(Exception):
     pass
 
@@ -43,7 +46,7 @@ class QAContext:
     bible: Bible
     open_tks: list[tuple[str, str]] = field(default_factory=list)  # (TK id, block)
     unresolved: list[tuple[str, str]] = field(default_factory=list)  # (block, reason)
-    length_band: tuple[float, float] = (0.5, 2.0)
+    length_band: tuple[float, float] = DEFAULT_LENGTH_BAND
 
 
 _CODES = re.compile(r'<pc id="\d+">|</pc>|<ph id="\d+"/>')
@@ -102,6 +105,46 @@ def banned_variants(context: QAContext) -> list[Finding]:
     ]
 
 
+MIN_RATIO_LENGTH = 20  # shorter source blocks (titles, interjections) vary too much to compare
+
+
+@check("omission")
+def omissions(context: QAContext) -> list[Finding]:
+    return [
+        Finding("omission", block, "the source has text but the target is empty")
+        for block in context.sources
+        if source_text(context, block).strip() and not target_text(context, block).strip()
+    ]
+
+
+@check("length_ratio")
+def length_ratios(context: QAContext) -> list[Finding]:
+    low, high = context.length_band
+    found = []
+    for block in context.sources:
+        source, target = source_text(context, block).strip(), target_text(context, block).strip()
+        if len(source) < MIN_RATIO_LENGTH or not target:  # an empty target is an omission
+            continue
+        ratio = len(target) / len(source)
+        if not low <= ratio <= high:
+            found.append(
+                Finding(
+                    "length_ratio",
+                    block,
+                    f"target is {ratio:.2f} times the source's length (band {low} to {high})",
+                )
+            )
+    return found
+
+
+def length_band(db: sqlite3.Connection) -> tuple[float, float]:
+    row = db.execute("select value from settings where key = 'qa_length_band'").fetchone()
+    if row is None:
+        return DEFAULT_LENGTH_BAND
+    low, high = str(row[0]).split(",")
+    return float(low), float(high)
+
+
 def create_tables(db: sqlite3.Connection) -> None:
     db.execute(
         "create table if not exists qa_findings (id integer primary key autoincrement,"
@@ -123,7 +166,9 @@ def load_context(db: sqlite3.Connection, source: Epub, bible: Bible) -> QAContex
         for scene in chapter.scenes
         for b in scene.blocks
     }
-    return QAContext(sources=sources, targets=dict(targets), bible=bible)
+    return QAContext(
+        sources=sources, targets=dict(targets), bible=bible, length_band=length_band(db)
+    )
 
 
 def run_qa(db: sqlite3.Connection, source: Epub, bible: Bible) -> list[Finding]:

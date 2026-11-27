@@ -100,3 +100,31 @@ def test_glossary_use_passes_when_followed_and_fails_on_a_banned_variant_or_a_lo
     assert (block, "glossary") in findings(ws)  # the term is also gone
     assert f"[banned_variant] {block}" in out
     assert query(ws, "select status from stages where stage = 'qa'") == [("failed",)]
+
+
+def test_a_blank_target_is_an_omission_and_a_lopsided_one_breaks_the_length_band(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    adapter = CountingAdapter()
+    ws = translate(tmp_path, adapter)
+    long_block, blank_block = source_ids()[1], source_ids()[2]
+    set_target(ws, long_block, "It was a quiet evening. " * 8)
+    set_target(ws, blank_block, "  ")
+
+    qa(ws, adapter, capsys)
+
+    assert (blank_block, "omission") in findings(ws)
+    assert (long_block, "length_ratio") in findings(ws)
+    assert (long_block, "omission") not in findings(ws)
+
+
+def test_the_length_band_is_configurable(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    adapter = CountingAdapter()
+    ws = translate(tmp_path, adapter, "--qa-length-band", "0.1", "9")
+    set_target(ws, source_ids()[1], "It was a quiet evening. " * 8)
+
+    qa(ws, adapter, capsys)
+
+    assert findings(ws) == []
