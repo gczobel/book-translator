@@ -10,7 +10,7 @@ import pytest
 
 from book_translator import main
 from book_translator.epub import open_epub
-from book_translator.llm import InvalidOutputError, LLMRequest, RawAnswer
+from book_translator.llm import LLMRequest, RawAnswer
 from test_cli_bible_part2 import EPUB, Part2Adapter, echo_draft, part2
 
 Answer = Callable[[LLMRequest, int], str]
@@ -184,16 +184,45 @@ def test_a_tk_needs_two_or_three_candidates_and_retries_are_bounded(ws: Path) ->
     one = tk(candidates=[{"rendering": "a", "reason": "b"}], recommendation="a")
     adapter = DraftAdapter(with_tks([one]))
 
-    with pytest.raises(InvalidOutputError):
+    with pytest.raises(SystemExit):
         drafted(ws, adapter)
 
     assert adapter.draft_attempts == 3
 
 
+def test_an_answer_that_stays_invalid_is_saved_and_the_run_stops_with_a_short_message(
+    ws: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret = "sk-ant-should-never-appear"
+
+    def hopeless(request: LLMRequest, attempt: int) -> str:
+        return json.dumps({"blocks": [], "note": secret * 5000})
+
+    adapter = DraftAdapter(hopeless)
+    with pytest.raises(SystemExit) as stopped:
+        drafted(ws, adapter)
+
+    message = str(stopped.value)
+    assert "draft" in message and "validation" in message
+    assert "Traceback" not in message
+    logs = list((ws / "logs").glob("invalid-*.json"))
+    assert len(logs) == 1
+    assert str(logs[0]) in message
+    assert f"book-translator run {ws}" in message
+    saved = json.loads(logs[0].read_text())
+    assert saved["stage"] == "draft"
+    assert logs[0].name == f"invalid-{saved['key']}.json"
+    assert "cover exactly the blocks" in saved["error"]
+    assert saved["raw"].startswith('{"blocks": []')
+    assert logs[0].stat().st_size < 100_000
+    assert secret not in logs[0].read_text()
+    assert len(message) < 3000
+
+
 def test_a_tk_of_an_unknown_type_is_retried(ws: Path) -> None:
     adapter = DraftAdapter(with_tks([tk(type="hunch")]))
 
-    with pytest.raises(InvalidOutputError):
+    with pytest.raises(SystemExit):
         drafted(ws, adapter)
 
 
@@ -227,7 +256,7 @@ def test_inline_codes_that_stay_broken_stop_the_run_after_bounded_attempts(ws: P
         return json.dumps(draft)
 
     adapter = DraftAdapter(hopeless)
-    with pytest.raises(InvalidOutputError):
+    with pytest.raises(SystemExit):
         drafted(ws, adapter)
 
     assert adapter.draft_attempts - len(adapter.draft_requests) == 2
@@ -412,7 +441,7 @@ def test_status_reports_the_draft_stage(ws: Path, capsys: pytest.CaptureFixture[
 def test_a_tk_with_an_empty_provisional_rendering_is_retried(ws: Path) -> None:
     adapter = DraftAdapter(with_tks([tk(provisional="")]))
 
-    with pytest.raises(InvalidOutputError):
+    with pytest.raises(SystemExit):
         drafted(ws, adapter)
 
     assert adapter.draft_attempts == 3

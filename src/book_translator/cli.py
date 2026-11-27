@@ -25,7 +25,7 @@ from book_translator.export import REPORT_NAME, ExportError, ValidationFailedErr
 from book_translator.fonts import FontCoverageError
 from book_translator.gates import GateError, approve_waiting_gate
 from book_translator.inline import InlineCodeError
-from book_translator.llm import Adapter
+from book_translator.llm import Adapter, InvalidOutputError
 from book_translator.progress import Progress
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
 from book_translator.qa import print_report
@@ -118,6 +118,8 @@ def main(
             run(args.workspace, adapter, search, Progress(None, quiet=args.quiet))
         except CapReachedError as exc:
             sys.exit(f"stopped: {exc}")
+        except InvalidOutputError as exc:
+            sys.exit(_invalid_message(exc, args.workspace))
         print_report(args.workspace)
     elif args.command == "approve":
         _approve(args.workspace)
@@ -131,6 +133,24 @@ def main(
         print(render(read_status(args.workspace), args.workspace))
     else:
         parser.print_help()
+
+
+def _invalid_message(exc: InvalidOutputError, path: Path) -> str:
+    """A short account of an answer that stayed invalid: where, why, what was kept, how to go on."""
+    detail = " ".join(exc.detail.split())
+    if len(detail) > 600:
+        detail = detail[:600] + "..."
+    where = f" (stage {exc.stage})" if exc.stage else ""
+    saved = (
+        f"The model's last answer is saved in {exc.log}."
+        if exc.log
+        else "The model's last answer could not be saved."
+    )
+    return (
+        f"error: the model's answer failed validation after {exc.attempts} attempt(s){where}: "
+        f"{detail}\n{saved}\n"
+        f"Work done so far is kept; resume with: book-translator run {path}"
+    )
 
 
 def _export(path: Path) -> None:
@@ -176,6 +196,8 @@ def _evaluate(
         sys.exit(f"error: {exc}")
     except CapReachedError as exc:
         sys.exit(f"stopped: {exc}")
+    except InvalidOutputError as exc:
+        sys.exit(_invalid_message(exc, path))
     if not json.loads(out.read_text())["evaluation_mode"]:
         print(
             "warning: this workspace was not initialised with `init --evaluation`, so"
