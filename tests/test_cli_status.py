@@ -49,6 +49,8 @@ class CountingAdapter:
         self.calls = 0
 
     def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+        if request.stage == "enrichment":  # covered in test_cli_enrichment.py
+            return RawAnswer("{}")
         if self._fail_after is not None and self.calls >= self._fail_after:
             raise KeyboardInterrupt
         self.calls += 1
@@ -107,7 +109,7 @@ def test_status_of_a_finished_run_shows_spend(
     main(["run", str(workspace)], adapter=CountingAdapter(recordings(PLAIN)))
     Budget(workspace / "book.sqlite").record("extraction", 1.25)
     out = status(workspace, capsys)
-    assert "Stage: completion (done)" in out
+    assert "Stage: enrichment (done)" in out
     assert "Progress: 2 of 2 chapters extracted" in out
     assert "Spent: $1.25 of $5.00 cap" in out
     assert "Next: nothing left to run" in out

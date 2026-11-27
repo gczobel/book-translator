@@ -70,6 +70,7 @@ class GlossaryEntry(BaseModel):
     banned_variants: list[str] = []
     context_rule: str = ""
     origin: Literal["extracted", "researched", "established"]
+    source: str = ""  # where an established rendering was found
 
 
 class Motif(BaseModel):

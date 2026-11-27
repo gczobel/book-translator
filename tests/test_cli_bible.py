@@ -76,6 +76,8 @@ class BibleAdapter:
         self.calls = 0
 
     def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+        if request.stage == "enrichment":  # covered in test_cli_enrichment.py
+            return RawAnswer("{}")
         if self._fail_after is not None and self.calls >= self._fail_after:
             raise KeyboardInterrupt
         self.calls += 1

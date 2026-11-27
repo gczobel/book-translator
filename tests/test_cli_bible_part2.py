@@ -73,6 +73,8 @@ class Part2Adapter:
         self.completion_requests: list[LLMRequest] = []
 
     def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+        if request.stage == "enrichment":  # covered in test_cli_enrichment.py
+            return RawAnswer("{}")
         if self._fail_after is not None and self.calls >= self._fail_after:
             raise KeyboardInterrupt
         self.calls += 1
@@ -140,8 +142,8 @@ def test_glossary_entries_have_rendering_banned_variants_context_rule_and_origin
     main(["run", str(ws)], adapter=Part2Adapter([json.dumps(part2(glossary=entries))]))
 
     glossary = stored(ws)["glossary"]
-    assert glossary[0] == entries[0]
-    assert glossary[1] == {**entries[1], "banned_variants": [], "context_rule": ""}
+    assert glossary[0] == {**entries[0], "source": ""}
+    assert glossary[1] == {**entries[1], "banned_variants": [], "context_rule": "", "source": ""}
 
 
 def test_an_unknown_glossary_origin_is_retried(ws: Path) -> None:
