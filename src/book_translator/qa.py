@@ -17,7 +17,7 @@ from pathlib import Path
 
 from book_translator.bible import Bible
 from book_translator.epub import Epub
-from book_translator.inline import EncodedBlock
+from book_translator.inline import EncodedBlock, InlineCodeError
 from book_translator.workspace import DB_NAME
 
 STAGE = "qa"
@@ -195,6 +195,20 @@ def motifs(context: QAContext) -> list[Finding]:
         if contains(source_text(context, block), m.name)
         and m.locked_rendering not in target_text(context, block)
     ]
+
+
+@check("inline_markup")
+def inline_markup(context: QAContext) -> list[Finding]:
+    """Every target block keeps its source block's inline codes balanced and legal."""
+    found = []
+    for block, pieces in context.targets.items():
+        if block not in context.sources:
+            continue
+        try:
+            context.sources[block].validate_pieces(pieces)
+        except InlineCodeError as exc:
+            found.append(Finding("inline_markup", block, str(exc)))
+    return found
 
 
 def length_band(db: sqlite3.Connection) -> tuple[float, float]:

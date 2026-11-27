@@ -169,6 +169,23 @@ def test_a_locked_motif_must_be_rendered_the_same_every_time(
     assert findings(ws) == [(second, "motif")]
 
 
+def test_inline_markup_must_stay_intact_in_every_target_block(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    adapter = CountingAdapter()
+    ws = translate(tmp_path, adapter)
+    block = "OEBPS/ch2.xhtml#1"
+    set_target(ws, block, 'La mañana siguiente fue <pc id="1">ruidosa</pc>.')
+    qa(ws, adapter, capsys)
+    assert findings(ws) == []
+
+    set_target(ws, block, 'La mañana siguiente fue <pc id="1">ruidosa.')
+    out = qa(ws, adapter, capsys)
+
+    assert findings(ws) == [(block, "inline_markup")]
+    assert "must open and close" in out
+
+
 def test_the_length_band_is_configurable(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
