@@ -1,0 +1,50 @@
+name: release-verify
+
+# Every new `v*` tag must point at release-please's merge commit on main (ticket #20, ADR 0005
+# "Releases"). The decision lives in .github/scripts/releasetag (tested); this file only runs it.
+#
+# Why `create` and not `push: tags`: a tag-push run uses the workflow file from the tagged commit,
+# so whoever makes a tag could make the tag's own copy of this check pass. A `create` run always
+# uses the default branch's copy, and the job below checks out `main` (never the tag) and reads
+# the tag name only as data, through the environment.
+#
+# This run has no secrets: the `maintenance` environment only admits main, and a tag run's ref is
+# the tag. A failed (or cancelled) run is escalated by release-escalate.yml, which runs from main.
+# `create` also fires for branches, hence the ref_type test; the script rejects any tag name that
+# is not exactly vMAJOR.MINOR.PATCH.
+on:
+  create:
+
+# Least privilege by default; each job asks for what it needs (ADR 0005).
+permissions: {}
+
+concurrency:
+  group: release-verify-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    permissions:
+      contents: read # a called workflow can't exceed its caller's permissions
+    uses: ./.github/workflows/pause.yml # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+
+  verify:
+    needs: [gate]
+    if: ${{ needs.gate.outputs.paused == 'false' && github.event.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # to see which pull request a commit came from
+    steps:
+      # The default branch, never the tag: the tag is data here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - run: python3 -m releasetag
+        env:
+          PYTHONPATH: .github/scripts
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.event.ref_type }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}

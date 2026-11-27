@@ -1,0 +1,60 @@
+name: release-escalate
+
+# Tells the owner when release-verify.yml did not pass (ticket #20). It is a separate workflow
+# because the verify run belongs to a tag and cannot use the `maintenance` environment, which only
+# admits main; a `workflow_run` workflow always runs from the default branch, so it can.
+# It reads no event data except the verify run's own conclusion, a fixed GitHub value, and it
+# checks out nothing but main.
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] runs from main, checks out main only and reads only the run's conclusion; see above
+    workflows: [release-verify]
+    types: [completed]
+
+# Least privilege by default; each job asks for what it needs (ADR 0005).
+permissions: {}
+
+jobs:
+  gate:
+    permissions:
+      contents: read # a called workflow can't exceed its caller's permissions
+    uses: ./.github/workflows/pause.yml # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+
+  # A skipped verify (not a tag, or paused) concludes as success, so only a real failure or a
+  # cancel gets here. One problem, one key: the issue names no tag, so it carries no tag text.
+  escalate:
+    needs: [gate]
+    if: ${{ needs.gate.outputs.paused == 'false' && github.event.workflow_run.conclusion != 'success' }}
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+        with:
+          reason: release-tag-unverified
+          key: release-tag-unverified
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
+
+  # The pause gate itself errored: paused is empty, which is not a genuine pause ('true'),
+  # so this is a failure to escalate. A real pause never reaches this job.
+  escalate-gate-failed:
+    needs: [gate]
+    if: ${{ always() && needs.gate.result == 'failure' }}
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+        with:
+          reason: workflow-failed
+          key: release-escalate-gate-failed
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
