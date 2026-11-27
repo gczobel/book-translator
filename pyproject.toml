@@ -39,6 +39,7 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".github/scripts"]
+markers = ["e2e: end-to-end CLI tests on a fixture EPUB (the e2e required check)"]
 
 [tool.mypy]
 strict = true
