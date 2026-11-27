@@ -17,6 +17,7 @@ STAGES = (
     "enrichment",
     "draft",
     "tk_resolution",
+    "fidelity",
 )
 FINISHED = ("done", "nothing found")
 

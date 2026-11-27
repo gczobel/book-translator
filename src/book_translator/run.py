@@ -20,6 +20,7 @@ from book_translator.gates import (
 from book_translator.llm import LLM, Adapter
 from book_translator.search import Search
 from book_translator.stages import draft as drafting
+from book_translator.stages import fidelity as fidelity_check
 from book_translator.stages import resolve as resolving
 from book_translator.stages.complete import completion_request, completion_schema, merged
 from book_translator.stages.consolidate import consolidation_request
@@ -68,6 +69,7 @@ def run(workspace: Path, adapter: Adapter, search: Search | None = None) -> None
         _draft(db, workspace, llm)
         _tk_resolution(db, workspace, llm)
         _tk_gate(db, workspace)
+        _fidelity(db, workspace, llm)
     finally:
         db.close()
 
@@ -177,6 +179,18 @@ def _tk_resolution(db: sqlite3.Connection, workspace: Path, llm: LLM) -> None:
     source = open_epub(workspace / SOURCE_NAME)
     resolving.resolve(db, llm, source, bible, STAGE_MODELS["tk_resolution"])
     _set_status(db, "tk_resolution", "done")
+
+
+def _fidelity(db: sqlite3.Connection, workspace: Path, llm: LLM) -> None:
+    if _status(db, f"{TK_GATE} gate") != "approved" or _status(db, "fidelity") == "done":
+        return
+    with db:
+        fidelity_check.create_tables(db)
+    _set_status(db, "fidelity", "running")
+    bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
+    source = open_epub(workspace / SOURCE_NAME)
+    fidelity_check.review(db, llm, source, bible, STAGE_MODELS["fidelity"])
+    _set_status(db, "fidelity", "done")
 
 
 def _tk_gate(db: sqlite3.Connection, workspace: Path) -> None:
