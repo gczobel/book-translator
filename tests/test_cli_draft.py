@@ -109,6 +109,24 @@ def test_blocks_answered_out_of_order_with_a_stray_extra_are_stored_in_order(ws:
     assert "x" not in {r[0] for r in query(ws, "select text from targets")}
 
 
+def test_blocks_labelled_with_their_source_text_instead_of_their_id_are_matched_by_text(
+    ws: Path,
+) -> None:
+    def by_text(request: LLMRequest, attempt: int) -> str:
+        passage = json.loads(request.source_text)["passage"]
+        blocks = [{"source": b["text"], "targets": [f"es: {b['text']}"]} for b in passage]
+        return json.dumps({"blocks": blocks})
+
+    adapter = DraftAdapter(by_text)
+    drafted(ws, adapter)
+
+    assert adapter.draft_attempts == len(adapter.draft_requests)  # no paid retry
+    assert {r[0] for r in query(ws, "select source from targets")} == set(source_ids())
+    first = source_ids()[1]
+    rows = query(ws, f"select text from targets where source = '{first}'")
+    assert rows == [("es: It was a quiet evening.",)]
+
+
 def test_a_tk_for_a_block_outside_the_passage_is_dropped_not_fatal(ws: Path) -> None:
     def stray(request: LLMRequest, attempt: int) -> str:
         draft = json.loads(echo_draft(request))

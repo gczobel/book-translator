@@ -81,13 +81,15 @@ def passages(source: Epub) -> list[Passage]:
 def draft_schema(passage: Passage, encoded: dict[str, EncodedBlock]) -> type[Draft]:
     """The draft's schema for this passage: every block answered, in order, with legal codes."""
 
+    texts = {i: b.text for i, b in encoded.items()}
+
     class PassageDraft(Draft):
         @model_validator(mode="before")
         @classmethod
         def _settle_order_and_strays(cls, data: Any) -> Any:
             if not isinstance(data, dict):
                 return data
-            data = {**data, "blocks": in_order(data.get("blocks"), passage.ids, "source")}
+            data = {**data, "blocks": in_order(data.get("blocks"), passage.ids, "source", texts)}
             tks = data.get("tks")
             if isinstance(tks, list):  # a TK for a block outside the passage cannot be placed
                 data["tks"] = [
