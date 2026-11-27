@@ -93,6 +93,7 @@ def test_run_extracts_names_places_and_phrases_per_chapter(workspace: Path) -> N
         ("consolidation", "done"),
         ("completion", "done"),
         ("enrichment", "done"),
+        ("analysis gate", "waiting"),
     ]
 
 
@@ -113,6 +114,7 @@ def test_an_interrupted_run_resumes_without_repeating_calls(workspace: Path) -> 
         ("consolidation", "done"),
         ("completion", "done"),
         ("enrichment", "done"),
+        ("analysis gate", "waiting"),
     ]
     assert rows(workspace, "select count(*) from extractions") == [(2,)]
 
@@ -163,6 +165,7 @@ def test_raising_the_cap_resumes_without_repeating_or_losing_work(workspace: Pat
         ("consolidation", "done"),
         ("completion", "done"),
         ("enrichment", "done"),
+        ("analysis gate", "waiting"),
     ]
     assert rows(workspace, "select round(sum(cost_usd), 4) from spend") == [(0.021,)]
 

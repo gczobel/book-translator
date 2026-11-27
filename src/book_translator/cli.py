@@ -11,9 +11,11 @@ from book_translator.budget import CapReachedError, set_cap
 from book_translator.config import DEFAULT_CAP_USD, PROVIDER_KEYS, STAGE_MODELS, VARIETIES
 from book_translator.epub import open_epub
 from book_translator.estimate import estimate
+from book_translator.gates import GateError, approve_waiting_gate
 from book_translator.llm import Adapter
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
 from book_translator.run import run
+from book_translator.review import ReviewError
 from book_translator.search import Search, WikiSearch
 from book_translator.status import read_status, render
 from book_translator.structure import Book
@@ -38,6 +40,8 @@ def _parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--cap", type=float, help="set a new spending cap in USD before running")
     status_cmd = sub.add_parser("status", help="show the stage, progress and spend of a workspace")
     status_cmd.add_argument("workspace", type=Path)
+    approve_cmd = sub.add_parser("approve", help="approve the waiting review gate")
+    approve_cmd.add_argument("workspace", type=Path)
     return parser
 
 
@@ -62,6 +66,8 @@ def main(
             run(args.workspace, adapter, search)
         except CapReachedError as exc:
             sys.exit(f"stopped: {exc}")
+    elif args.command == "approve":
+        _approve(args.workspace)
     elif args.command == "status":
         if not (args.workspace / workspace.DB_NAME).is_file():
             sys.exit(f"error: not a workspace: {args.workspace}")
@@ -110,3 +116,13 @@ def _print_structure(book: Book) -> None:
     for label, parts in (("Front matter", book.front), ("Back matter", book.back)):
         if parts:
             print(f"{label}: " + ", ".join(p.kind for p in parts))
+
+
+def _approve(path: Path) -> None:
+    if not (path / workspace.DB_NAME).is_file():
+        sys.exit(f"error: not a workspace: {path}")
+    try:
+        approve_waiting_gate(path)
+    except (GateError, ReviewError) as exc:
+        sys.exit(f"error: {exc}")
+    print(f"Approved. Next: book-translator run {path}")

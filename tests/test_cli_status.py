@@ -112,7 +112,8 @@ def test_status_of_a_finished_run_shows_spend(
     assert "Stage: enrichment (done)" in out
     assert "Progress: 2 of 2 chapters extracted" in out
     assert "Spent: $1.25 of $5.00 cap" in out
-    assert "Next: nothing left to run" in out
+    assert "analysis is waiting" in out
+    assert f"Next: book-translator approve {workspace}" in out
 
 
 def test_status_changes_nothing(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
