@@ -163,6 +163,25 @@ FRAGMENT_2 = page("<p>More of two.</p>\n")
 # No usable NCX entries: chapters are found from the headings alone.
 NO_TOC_NCX = NCX.split("<navMap>")[0] + "<navMap/>\n</ncx>\n"
 
+# Notes: references carry `rf` ids and point at `nt` ids on a notes page (EPUB 2, no epub:type).
+NOTES_OPF = OPF.replace(
+    '<item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/>',
+    '<item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/>\n'
+    '    <item id="n" href="notes.xhtml" media-type="application/xhtml+xml"/>',
+).replace('<itemref idref="c2"/>', '<itemref idref="c2"/>\n    <itemref idref="n"/>')
+NOTES_1 = page(
+    '<h1>One</h1>\n<p>Born in the town.<a id="rf1" href="notes.xhtml#nt1">[1]</a></p>\n'
+)
+NOTES_2 = page(
+    '<h1>Two</h1>\n<p>Said the <i>maire</i>.<a id="rf2" href="notes.xhtml#nt2">[2]</a> '
+    'Then left.</p>\n'
+)
+NOTES_PAGE = page(
+    "<h2>Notes</h2>\n"
+    '<p id="nt1">1. A small town.<a href="ch1.xhtml#rf1">back</a></p>\n'
+    '<p id="nt2">2. The mayor.<a href="ch2.xhtml#rf2">back</a></p>\n'
+)
+
 
 def write(name: str, files: dict[str, bytes | str], *, ncx: str = NCX, opf: str = OPF) -> None:
     members: dict[str, bytes | str] = {
@@ -195,6 +214,11 @@ def main() -> None:
         ncx=FRAGMENT_NCX,
     )
     write("no-toc.epub", {"ch1.xhtml": HR_1, "ch2.xhtml": HR_2}, ncx=NO_TOC_NCX)
+    write(
+        "notes.epub",
+        {"ch1.xhtml": NOTES_1, "ch2.xhtml": NOTES_2, "notes.xhtml": NOTES_PAGE},
+        opf=NOTES_OPF,
+    )
 
 
 if __name__ == "__main__":

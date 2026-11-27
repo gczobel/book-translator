@@ -6,10 +6,12 @@ template versions. Chapters come from the NCX table of contents, falling back to
 and are not tied to the files that hold them.
 """
 
+import posixpath
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import unquote
 
 from lxml import etree
 
@@ -53,8 +55,17 @@ class Chapter:
 
 
 @dataclass(frozen=True)
+class Note:
+    """A note and the block that refers to it."""
+
+    block: str  # id of the note's first block
+    reference: str  # id of the block holding the reference
+
+
+@dataclass(frozen=True)
 class Book:
     chapters: list[Chapter]
+    notes: list[Note]
 
 
 @dataclass
@@ -65,6 +76,7 @@ class _Item:
     kind: BlockKind | None  # None: a scene break
     text: str = ""
     level: int = 0
+    links: tuple[tuple[str, str], ...] = ()  # (member, fragment) of each link in the block
 
 
 def build_book(
@@ -100,7 +112,32 @@ def build_book(
         if current:
             scenes.append(Scene(current))
         chapters.append(Chapter(title, scenes, breaks))
-    return Book(chapters)
+    return Book(chapters, _notes(items))
+
+
+def _notes(items: list[_Item]) -> list[Note]:
+    """Notes in reading order of their references: a reference links to the note's anchor.
+
+    A note's back-link to its reference is not a reference itself, so of two blocks that
+    link to each other the earlier one is the reference.
+    """
+    first: dict[tuple[str, str], int] = {}
+    for n, item in enumerate(items):
+        for anchor in item.anchors:
+            first.setdefault((item.member, anchor), n)
+    notes: list[Note] = []
+    for n, item in enumerate(items):
+        if item.kind is None:
+            continue
+        for link in item.links:
+            t = first.get(link)
+            if t is None or t == n:
+                continue
+            target = items[t]
+            if t < n and any(first.get(back) == n for back in target.links):
+                continue
+            notes.append(Note(target.id, item.id))
+    return notes
 
 
 def _chapter_starts(
@@ -133,17 +170,29 @@ def _items(member: str, data: bytes) -> Iterator[_Item]:
         name = _name(el)
         anchors = ids | {str(i) for e in el.iter() if (i := e.get("id"))}
         item_id = f"{member}#{count}"
+        links = _links(member, el)
         if _is_break(el, name):
             yield _Item(member, item_id, anchors, None)
         elif name in _HEADINGS:
-            yield _Item(member, item_id, anchors, "heading", _text(el), int(name[1]))
+            yield _Item(member, item_id, anchors, "heading", _text(el), int(name[1]), links)
         elif name == "li":
-            yield _Item(member, item_id, anchors, "list_item", _text(el))
+            yield _Item(member, item_id, anchors, "list_item", _text(el), 0, links)
         elif _is_verse(el):
-            yield _Item(member, item_id, anchors, "verse", _verse_text(el))
+            yield _Item(member, item_id, anchors, "verse", _verse_text(el), 0, links)
         else:
-            yield _Item(member, item_id, anchors, "paragraph", _text(el))
+            yield _Item(member, item_id, anchors, "paragraph", _text(el), 0, links)
         count += 1
+
+
+def _links(member: str, el: etree._Element) -> tuple[tuple[str, str], ...]:
+    out: list[tuple[str, str]] = []
+    for a in el.iter():
+        href = a.get("href") if _name(a) == "a" else None
+        if href and "#" in href:
+            path, _, fragment = unquote(str(href)).partition("#")
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(member), path or member))
+            out.append((target if path else member, fragment))
+    return tuple(out)
 
 
 def _walk(parent: etree._Element, ids: set[str]) -> Iterator[tuple[etree._Element, set[str]]]:

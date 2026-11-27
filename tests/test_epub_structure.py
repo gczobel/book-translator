@@ -96,3 +96,14 @@ def test_blocks_keep_a_stable_id_and_their_position() -> None:
     assert len({b.id for b in blocks}) == len(blocks)
     assert blocks == [b for c in again.chapters for s in c.scenes for b in s.blocks]
     assert blocks[0].id == "OEBPS/ch1.xhtml#0"
+
+
+def test_notes_are_linked_to_their_references_by_rf_nt_ids() -> None:
+    book = open_epub(FIXTURES / "notes.epub").book()
+
+    by_id = {b.id: b for c in book.chapters for s in c.scenes for b in s.blocks}
+    linked = [(by_id[n.reference].text, by_id[n.block].text) for n in book.notes]
+    assert linked == [
+        ("Born in the town.[1]", "1. A small town.back"),
+        ("Said the maire.[2] Then left.", "2. The mayor.back"),
+    ]
