@@ -127,7 +127,10 @@ def evaluate(
         report["judge"] = judge_scenes(llm, STAGE_MODELS["judge"], views)
     report.update(_facts(workspace))
     if diagnose and llm is not None:
-        report["diagnosis"] = diagnose_report(llm, STAGE_MODELS["diagnosis"], report)
+        # Cost varies run to run (it includes earlier diagnoses), so it stays out of the request
+        # and a rerun hits the cache.
+        facts = {k: v for k, v in report.items() if k != "cost"}
+        report["diagnosis"] = diagnose_report(llm, STAGE_MODELS["diagnosis"], facts)
         report["cost"] = _facts(workspace)["cost"]
     (workspace / REPORT_JSON).write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     (workspace / REPORT_MD).write_text(render_markdown(report), encoding="utf-8")
