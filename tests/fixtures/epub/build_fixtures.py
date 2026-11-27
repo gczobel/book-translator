@@ -444,8 +444,22 @@ def write(
             z.writestr(info, data.encode("utf-8") if isinstance(data, str) else data)
 
 
+# Valid XHTML whose DOCTYPE defines the HTML entities; no parser may fetch the DTD for them.
+ENTITIES_1 = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+<head><title>One</title></head>
+<body>
+  <h1 id="ch1">One</h1>
+  <p>Caf&eacute;&nbsp;Rouge &mdash; she said &amp; left &#8230;</p>
+</body>
+</html>
+"""
+
+
 def main() -> None:
     write("plain.epub", {"ch1.xhtml": PLAIN_1, "ch2.xhtml": PLAIN_2})
+    write("entities.epub", {"ch1.xhtml": ENTITIES_1, "ch2.xhtml": PLAIN_2})
     write("odd-markup.epub", {"ch1.xhtml": ODD_1, "ch2.xhtml": PLAIN_2})
     write("inline-markup.epub", {"ch1.xhtml": INLINE_1, "ch2.xhtml": INLINE_2})
     write("dialogue.epub", {"ch1.xhtml": DIALOGUE_1, "ch2.xhtml": PLAIN_2})

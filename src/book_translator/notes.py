@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from lxml import etree
 
 from book_translator.epub import Epub, EpubError
+from book_translator.xmlparse import fromstring
 
 _NUMBER = re.compile(r"\d+")
 
@@ -51,7 +52,7 @@ def _all_ids(epub: Epub) -> set[str]:
     return {
         str(i)
         for member in epub.spine()
-        for e in etree.fromstring(epub.read(member)).iter()
+        for e in fromstring(epub.read(member)).iter()
         if (i := e.get("id"))
     }
 

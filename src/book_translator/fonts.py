@@ -10,9 +10,9 @@ import posixpath
 from urllib.parse import unquote
 
 from fontTools.ttLib import TTFont
-from lxml import etree
 
 from book_translator.epub import Epub, EpubError
+from book_translator.xmlparse import fromstring
 
 _OPF = "{http://www.idpf.org/2007/opf}"
 _DC = "{http://purl.org/dc/elements/1.1/}"
@@ -60,7 +60,7 @@ def check_font_coverage(epub: Epub, language: str) -> None:
 
 
 def _embedded_fonts(epub: Epub) -> list[str]:
-    opf = etree.fromstring(epub.read(epub.opf_path))
+    opf = fromstring(epub.read(epub.opf_path))
     base = posixpath.dirname(epub.opf_path)
     fonts = []
     for item in opf.iterfind(f".//{_OPF}manifest/{_OPF}item"):
@@ -74,7 +74,7 @@ def _obfuscated(epub: Epub) -> dict[str, str]:
     """Members listed in `encryption.xml`, with their algorithm URI."""
     if _ENCRYPTION not in epub.names:
         return {}
-    root = etree.fromstring(epub.read(_ENCRYPTION))
+    root = fromstring(epub.read(_ENCRYPTION))
     found = {}
     for data in root.iter(f"{_ENC}EncryptedData"):
         method = data.find(f"{_ENC}EncryptionMethod")
@@ -85,7 +85,7 @@ def _obfuscated(epub: Epub) -> dict[str, str]:
 
 
 def _unique_identifier(epub: Epub) -> str:
-    opf = etree.fromstring(epub.read(epub.opf_path))
+    opf = fromstring(epub.read(epub.opf_path))
     wanted = opf.get("unique-identifier")
     for element in opf.iter(f"{_DC}identifier"):
         if element.get("id") == wanted:
