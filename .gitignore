@@ -12,3 +12,5 @@ dist/
 *.azw3
 .work/
 .scratch/
+*.pem
+*.key

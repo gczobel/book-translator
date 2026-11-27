@@ -165,6 +165,33 @@ def test_run_reports_mint_failures_with_the_error_message_only(tmp_path: Path) -
     assert out.text == "" and "HTTP 401" in err.text
 
 
+@pytest.mark.parametrize("marker", ["dir", "file"])  # a repository has a dir, a worktree a file
+def test_run_refuses_a_key_inside_a_checkout(tmp_path: Path, marker: str) -> None:
+    repo = tmp_path / "checkout"
+    (repo / "deep").mkdir(parents=True)
+    if marker == "dir":
+        (repo / ".git").mkdir()
+    else:
+        (repo / ".git").write_text("gitdir: elsewhere\n")
+    key = repo / "deep" / "k.pem"
+    key.write_text("x")
+    out, err = Sink(), Sink()
+    assert run({"AGENT_APP_KEY_PATH": str(key)}, out, err, mint=fake_mint) == 1
+    assert out.text == "" and "checkout" in err.text
+
+
+def test_run_refuses_a_symlink_that_points_into_a_checkout(tmp_path: Path) -> None:
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    (repo / "k.pem").write_text("x")
+    link = tmp_path / "link.pem"
+    link.symlink_to(repo / "k.pem")
+    out, err = Sink(), Sink()
+    assert run({"AGENT_APP_KEY_PATH": str(link)}, out, err, mint=fake_mint) == 1
+    assert out.text == ""
+
+
 def test_requested_permissions_never_include_workflows_or_administration() -> None:
     assert set(PERMISSIONS) <= {"contents", "pull_requests", "metadata"}
     assert "workflows" not in PERMISSIONS and "administration" not in PERMISSIONS

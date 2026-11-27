@@ -16,6 +16,11 @@ from agenttoken.core import TokenError, mint_token
 KEY_ENV = "AGENT_APP_KEY_PATH"
 
 
+def _inside_checkout(key: Path) -> bool:
+    """True if the key, once symlinks are resolved, sits in a repository or a worktree."""
+    return any((parent / ".git").exists() for parent in key.resolve().parents)
+
+
 class _Stream(Protocol):
     def write(self, data: str, /) -> int: ...
     def isatty(self) -> bool: ...
@@ -34,6 +39,9 @@ def run(
     key = Path(path)
     if not key.is_file():
         err.write(f"agenttoken: no key file at the path in {KEY_ENV}\n")
+        return 1
+    if _inside_checkout(key):
+        err.write(f"agenttoken: the key in {KEY_ENV} is inside a checkout; move it out\n")
         return 1
     if out.isatty():
         err.write("agenttoken: refusing to print a token on a terminal; capture it with $(...)\n")
