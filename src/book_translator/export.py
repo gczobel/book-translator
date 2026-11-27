@@ -99,9 +99,7 @@ def _chapter_titles(db: sqlite3.Connection, source: Epub) -> dict[str, str]:
     return titles
 
 
-def _synchronize(
-    db: sqlite3.Connection, source: Epub, target: str, titles: dict[str, str]
-) -> None:
+def _synchronize(db: sqlite3.Connection, source: Epub, target: str, titles: dict[str, str]) -> None:
     row = db.execute(
         "select rendering from glossary where term = ?", (_metadata(source, "title"),)
     ).fetchone()
