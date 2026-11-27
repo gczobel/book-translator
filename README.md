@@ -15,6 +15,30 @@ cadence polish, fidelity gate, deterministic QA.
 - `docs/adr/`, `GLOSSARY.md`: decisions and vocabulary
 - `src/book_translator/` — package (Python 3.12, `uv`)
 
+## Installing a release
+
+Releases are cut by release-please: a merged `feat:` or `fix:` commit opens a release PR, and
+merging it tags `vX.Y.Z` and creates the GitHub Release. Tags cannot be moved or deleted, and
+each new tag is checked automatically (a `release-verify` run on every tag creation).
+
+```
+uv tool install git+https://github.com/gczobel/book-translator@vX.Y.Z
+```
+
+The expected commit is the **merge commit of the release PR** titled `chore: release X.Y.Z`
+on `main`, authored by the maintenance bot from a `release-please--branches--main` branch.
+Check that the tag points at it before installing:
+
+```
+git ls-remote https://github.com/gczobel/book-translator 'refs/tags/vX.Y.Z*'
+gh api repos/gczobel/book-translator/commits/vX.Y.Z/pulls --jq '.[] | [.number, .title, .user.id, .head.ref]'
+```
+
+The tag's commit hash is the first line of the first command (for an annotated tag, the line ending
+`^{}`); the second should list one pull request, titled `chore: release X.Y.Z`, with user ID
+`361970745` and a head branch starting `release-please--branches--`. If a `release-tag-unverified`
+issue is open, do not install that tag.
+
 ## Dev
 
 ```
