@@ -20,6 +20,7 @@ from book_translator.estimate import estimate
 from book_translator.gates import GateError, approve_waiting_gate
 from book_translator.llm import Adapter
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
+from book_translator.qa import print_report
 from book_translator.review import ReviewError
 from book_translator.run import run
 from book_translator.search import Search, WikiSearch
@@ -52,6 +53,13 @@ def _parser() -> argparse.ArgumentParser:
         default=DEFAULT_FIDELITY_RETRIES,
         help="times to correct and re-check a scene the polish made drift (default: 2)",
     )
+    init.add_argument(
+        "--qa-length-band",
+        type=float,
+        nargs=2,
+        metavar=("MIN", "MAX"),
+        help="QA: allowed target/source length ratio per block (default: 0.5 2.0)",
+    )
     run_cmd = sub.add_parser("run", help="advance the book through its stages (resumable)")
     run_cmd.add_argument("workspace", type=Path)
     run_cmd.add_argument("--cap", type=float, help="set a new spending cap in USD before running")
@@ -83,6 +91,7 @@ def main(
             run(args.workspace, adapter, search)
         except CapReachedError as exc:
             sys.exit(f"stopped: {exc}")
+        print_report(args.workspace)
     elif args.command == "approve":
         _approve(args.workspace)
     elif args.command == "status":
@@ -111,6 +120,8 @@ def _init(args: argparse.Namespace) -> None:
     path: Path = args.workspace or Path(epub.stem)
     settings = {"variety": args.variety, "target": args.target, "cap_usd": f"{args.cap:.2f}"}
     settings["fidelity_retries"] = str(max(args.fidelity_retries, 0))
+    if args.qa_length_band:
+        settings["qa_length_band"] = ",".join(str(v) for v in args.qa_length_band)
     if args.evaluation:
         settings["evaluation"] = "1"
     if args.skip_analysis_gate:

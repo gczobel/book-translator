@@ -18,6 +18,8 @@ from book_translator.gates import (
     write_tk_review,
 )
 from book_translator.llm import LLM, Adapter
+from book_translator.qa import STAGE as QA_STAGE
+from book_translator.qa import run_qa
 from book_translator.search import Search
 from book_translator.stages import draft as drafting
 from book_translator.stages import fidelity as fidelity_check
@@ -74,6 +76,7 @@ def run(workspace: Path, adapter: Adapter, search: Search | None = None) -> None
         _fidelity(db, workspace, llm)
         _polish(db, workspace, llm)
         _post_polish_fidelity(db, workspace, llm)
+        _qa(db, workspace)
     finally:
         db.close()
 
@@ -220,6 +223,15 @@ def _post_polish_fidelity(db: sqlite3.Connection, workspace: Path, llm: LLM) -> 
     source = open_epub(workspace / SOURCE_NAME)
     post_polish.recheck(db, llm, source, bible, STAGE_MODELS[stage])
     _set_status(db, stage, "done")
+
+
+def _qa(db: sqlite3.Connection, workspace: Path) -> None:
+    """Deterministic, so it runs again every time: the stored targets may have changed."""
+    if _status(db, post_polish.STAGE) != "done":
+        return
+    bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
+    found = run_qa(db, open_epub(workspace / SOURCE_NAME), bible)
+    _set_status(db, QA_STAGE, "failed" if found else "done")
 
 
 def _tk_gate(db: sqlite3.Connection, workspace: Path) -> None:
