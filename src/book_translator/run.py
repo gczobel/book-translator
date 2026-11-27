@@ -7,13 +7,13 @@ units of work there too, so a second run does only what is left.
 import sqlite3
 from pathlib import Path
 
-from book_translator.bible import Bible, Part2
+from book_translator.bible import Bible
 from book_translator.budget import Budget
 from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
 from book_translator.llm import LLM, Adapter
 from book_translator.search import Search
-from book_translator.stages.complete import completion_request, merged
+from book_translator.stages.complete import completion_request, completion_schema, merged
 from book_translator.stages.consolidate import consolidation_request
 from book_translator.stages.extract import Extraction, extraction_request
 from book_translator.stages.research import book_title, research
@@ -102,7 +102,7 @@ def _completion(db: sqlite3.Connection, llm: LLM) -> None:
         return
     _set_status(db, "completion", "running")
     part1 = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
-    result = llm.call(completion_request(STAGE_MODELS["consolidation"], db, part1), Part2)
+    result = llm.call(completion_request(STAGE_MODELS["consolidation"], db, part1), completion_schema(part1))
     with db:
         db.execute("delete from bible")
         db.execute("insert into bible values (?)", (merged(part1, result.output).model_dump_json(),))

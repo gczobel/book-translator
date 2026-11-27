@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from book_translator import main
-from book_translator.llm import LLMRequest, RawAnswer
+from book_translator.llm import InvalidOutputError, LLMRequest, RawAnswer
 from book_translator.search import Finding
 from test_cli_bible import CAST, BibleAdapter, bible
 
@@ -78,3 +78,32 @@ def test_the_address_grid_holds_directed_pairs_with_chapter_ranges(ws: Path) -> 
     assert (grid[0]["from_chapter"], grid[0]["to_chapter"]) == (None, None)
     assert (grid[1]["from_chapter"], grid[1]["to_chapter"]) == (1, 2)
     assert (grid[2]["from_chapter"], grid[2]["to_chapter"]) == (3, None)
+
+
+def test_an_address_rule_for_someone_outside_the_cast_is_retried(ws: Path) -> None:
+    stray = part2(address_grid=[{"speaker": "Nobody", "addressee": "Hiram", "form": "tú"}])
+    adapter = Part2Adapter([json.dumps(stray), json.dumps(part2())])
+
+    main(["run", str(ws)], adapter=adapter)
+
+    assert len(adapter.completion_requests) == 2
+    assert len(stored(ws)["address_grid"]) == 3
+
+
+def test_a_backwards_chapter_range_is_retried(ws: Path) -> None:
+    rule = {"speaker": "Hiram", "addressee": "Sir Simon", "form": "tú"}
+    backwards = part2(address_grid=[{**rule, "from_chapter": 3, "to_chapter": 1}])
+    adapter = Part2Adapter([json.dumps(backwards), json.dumps(part2())])
+
+    main(["run", str(ws)], adapter=adapter)
+
+    assert len(adapter.completion_requests) == 2
+
+
+def test_an_unknown_form_of_address_is_never_stored(ws: Path) -> None:
+    bad = part2(address_grid=[{"speaker": "Hiram", "addressee": "Sir Simon", "form": "vos"}])
+
+    with pytest.raises(InvalidOutputError):
+        main(["run", str(ws)], adapter=Part2Adapter([json.dumps(bad)]))
+
+    assert stored(ws)["address_grid"] == []

@@ -53,11 +53,28 @@ class AddressRule(BaseModel):
     from_chapter: int | None = None
     to_chapter: int | None = None
 
+    @model_validator(mode="after")
+    def _range_runs_forwards(self) -> Self:
+        if (
+            self.from_chapter is not None
+            and self.to_chapter is not None
+            and self.from_chapter > self.to_chapter
+        ):
+            raise ValueError(f"chapter range {self.from_chapter}-{self.to_chapter} runs backwards")
+        return self
+
 
 class Part2(BaseModel):
     """The second half of the bible, written once part 1 is known."""
 
     address_grid: list[AddressRule] = []
+
+    def check_against_cast(self, names: set[str]) -> None:
+        unknown = sorted(
+            {n for r in self.address_grid for n in (r.speaker, r.addressee) if n not in names}
+        )
+        if unknown:
+            raise ValueError(f"address rules for characters outside the cast: {unknown}")
 
 
 class Bible(Part2):
@@ -72,4 +89,5 @@ class Bible(Part2):
         unknown = [v.character for v in self.voice_cards if v.character not in names]
         if unknown:
             raise ValueError(f"voice cards for characters outside the cast: {unknown}")
+        self.check_against_cast(names)
         return self
