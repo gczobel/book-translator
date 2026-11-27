@@ -117,3 +117,20 @@ def test_numbers_use_a_decimal_comma_and_spaced_thousands_and_percent_signs(
         assert normalised(ws, text, adapter, capsys) == expected  # N2, N3, N6
         assert normalised(ws, expected, adapter, capsys) == expected
     assert findings(ws) == []
+
+
+def test_months_and_days_are_lowercase_inside_a_sentence_but_not_names_or_sentence_starts(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+    cases = [
+        (
+            "Llegó el Lunes 3 de Mayo y se fue en Diciembre.",
+            "Llegó el lunes 3 de mayo y se fue en diciembre.",
+        ),
+        ("Marzo fue largo. Vio a Domingo Pérez y al Domingo Ramos.", None),  # starts and names
+    ]
+    for text, expected in cases:
+        assert normalised(ws, text, adapter, capsys) == (expected or text)  # 3.6
+        assert normalised(ws, expected or text, adapter, capsys) == (expected or text)
+    assert query(ws, "select rule from typography_changes") == [("months_days",)]

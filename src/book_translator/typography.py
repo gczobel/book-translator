@@ -225,6 +225,26 @@ def numbers(text: str) -> str:
     return _PERCENT.sub(NBSP + "%", text)
 
 
+_MONTHS = "enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre"
+_DAYS = "lunes martes miércoles jueves viernes sábado domingo"
+_CAPITAL = "A-ZÁÉÍÓÚÑ"
+_MONTH_AFTER = re.compile(
+    rf"\b(de|en|desde|hasta)\s+({'|'.join(w.capitalize() for w in _MONTHS.split())})\b"
+    rf"(?!\s+[{_CAPITAL}])"
+)
+_DAY_AFTER = re.compile(
+    r"\b(el|los|este|ese|aquel|del|al|cada|un|próximo|pasado|último)\s+"
+    rf"({'|'.join(w.capitalize() for w in _DAYS.split())})\b(?!\s+[{_CAPITAL}])"
+)
+
+
+def months_days(text: str) -> str:
+    """3.6, 5.4: months and days are lowercase. Only where a capital cannot be the start of a
+    sentence or a name: after `de`, `en`, `el`, `este`... and before no capitalised word."""
+    lower = lambda m: f"{m.group(1)} {m.group(2).lower()}"  # noqa: E731
+    return _DAY_AFTER.sub(lower, _MONTH_AFTER.sub(lower, text))
+
+
 @check("number_format")
 def number_format(context: QAContext) -> list[Finding]:
     return [
@@ -256,6 +276,7 @@ RULES: list[tuple[str, Callable[[str], str]]] = [
     ("raya", raya),
     ("inverted_marks", inverted_marks),
     ("numbers", numbers),
+    ("months_days", months_days),
 ]
 
 
