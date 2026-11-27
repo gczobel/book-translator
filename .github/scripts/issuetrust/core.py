@@ -10,7 +10,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-OWNER_ID = 754466
+from ghapi.identities import OWNER_ID
+
 READY_LABEL = "ready-for-agent"
 
 

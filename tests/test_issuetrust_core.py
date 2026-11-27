@@ -4,8 +4,8 @@ from typing import Any
 
 import pytest
 
+from ghapi.identities import OWNER_ID
 from issuetrust.core import (
-    OWNER_ID,
     TrustError,
     check_not_edited_after_ready,
     owner_comments,

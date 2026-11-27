@@ -2,7 +2,7 @@
 
 import pytest
 
-from guard import rules
+from ghapi.identities import DEPENDABOT_ID, OWNER_ID
 from guard.rules import (
     ChangedFile,
     PullRequest,
@@ -15,8 +15,8 @@ from guard.rules import (
     uv_config_changed,
 )
 
-OWNER = rules.OWNER_ID
-DEPENDABOT = rules.DEPENDABOT_ID
+OWNER = OWNER_ID
+DEPENDABOT = DEPENDABOT_ID
 HEAD = "h" * 40
 OLD = "a" * 40
 NEW = "b" * 40

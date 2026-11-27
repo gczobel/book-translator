@@ -24,7 +24,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-DEPENDABOT_ID = 49699333  # dependabot[bot]
+from ghapi.identities import DEPENDABOT_ID
+
 HIGH = 7.0  # CVSS v3 "high" starts here
 STALE_AFTER = timedelta(hours=48)
 # osv-scanner exits 0 when clean and 1 when it found vulnerabilities; 127, 128 and the rest

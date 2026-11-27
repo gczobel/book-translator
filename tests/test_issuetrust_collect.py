@@ -5,8 +5,9 @@ from typing import Any
 import pytest
 
 from ghapi.client import ApiError
+from ghapi.identities import OWNER_ID
 from issuetrust.collect import load_trusted_issue
-from issuetrust.core import OWNER_ID, TrustError
+from issuetrust.core import TrustError
 
 REPO = "o/r"
 T0 = "2026-11-01T10:00:00Z"

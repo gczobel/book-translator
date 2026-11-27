@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from ghapi.client import ApiError
-from osvscan.core import DEPENDABOT_ID, Verdict, decide
+from ghapi.identities import DEPENDABOT_ID
+from osvscan.core import Verdict, decide
 from osvscan.run import run
 
 REPO = "o/r"
@@ -266,3 +267,4 @@ def test_run_fails_loudly_when_outputs_cannot_be_written(tmp_path: Path) -> None
     env = env_for(tmp_path, osv())
     del env["GITHUB_OUTPUT"]
     assert run(env, FakePulls(), NOW) == 1
+
