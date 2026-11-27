@@ -1,0 +1,120 @@
+"""Seam 3: the LLM interface, observed through the replay adapter and the call cache."""
+
+from pathlib import Path
+
+import pytest
+from pydantic import BaseModel
+
+from book_translator.llm import LLM, InvalidOutputError, LLMRequest, request_key
+from book_translator.replay import MissingRecordingError, ReplayAdapter
+
+
+class Greeting(BaseModel):
+    text: str
+
+
+def make_request(**overrides: str) -> LLMRequest:
+    fields = {
+        "stage": "draft",
+        "prompt_version": "v1",
+        "model": "anthropic:claude-sonnet-5-5",
+        "prompt": "Say hello.",
+        "bible_slice": "bible",
+        "source_text": "Hola.",
+    }
+    fields.update(overrides)
+    return LLMRequest(**fields)
+
+
+def test_a_replayed_call_returns_the_recorded_validated_answer(tmp_path: Path) -> None:
+    request = make_request()
+    adapter = ReplayAdapter({request_key(request): '{"text": "hello"}'})
+    llm = LLM(adapter, tmp_path / "book.sqlite")
+
+    result = llm.call(request, Greeting)
+
+    assert result.output == Greeting(text="hello")
+
+
+def test_a_missing_recording_fails_naming_the_key(tmp_path: Path) -> None:
+    request = make_request()
+    llm = LLM(ReplayAdapter({}), tmp_path / "book.sqlite")
+
+    with pytest.raises(MissingRecordingError, match=request_key(request)):
+        llm.call(request, Greeting)
+
+
+def test_a_call_reports_its_tokens_and_cost(tmp_path: Path) -> None:
+    request = make_request()
+    adapter = ReplayAdapter(
+        {request_key(request): '{"text": "hello"}'}, input_tokens=1000, output_tokens=100
+    )
+
+    usage = LLM(adapter, tmp_path / "book.sqlite").call(request, Greeting).usage
+
+    assert (usage.input_tokens, usage.output_tokens) == (1000, 100)
+    assert usage.cost_usd == pytest.approx(0.0045)  # 1000 * $3/M + 100 * $15/M
+
+
+def test_a_repeated_call_is_served_from_the_cache_at_zero_cost(tmp_path: Path) -> None:
+    request = make_request()
+    database = tmp_path / "book.sqlite"
+    recorded = ReplayAdapter({request_key(request): '{"text": "hello"}'}, input_tokens=1000)
+    LLM(recorded, database).call(request, Greeting)
+
+    # A new interface over the same workspace database, with nothing recorded to replay.
+    again = LLM(ReplayAdapter({}), database).call(request, Greeting)
+
+    assert again.output == Greeting(text="hello")
+    assert again.usage.cost_usd == 0
+    assert again.usage.input_tokens == 0
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"model": "anthropic:claude-opus-4-5"},
+        {"prompt_version": "v2"},
+        {"source_text": "Adiós."},
+        {"stage": "polish"},
+        {"bible_slice": "other bible"},
+    ],
+)
+def test_changing_an_input_changes_the_key(change: dict[str, str]) -> None:
+    assert request_key(make_request(**change)) != request_key(make_request())
+
+
+def test_the_same_inputs_give_the_same_key() -> None:
+    assert request_key(make_request()) == request_key(make_request())
+
+
+def test_invalid_output_is_retried_and_the_valid_answer_is_returned(tmp_path: Path) -> None:
+    request = make_request()
+    answers = ['{"wrong": 1}', "not json", '{"text": "hello"}']
+    adapter = ReplayAdapter({request_key(request): answers}, input_tokens=10)
+
+    result = LLM(adapter, tmp_path / "book.sqlite").call(request, Greeting)
+
+    assert result.output == Greeting(text="hello")
+    assert result.usage.input_tokens == 30  # failed attempts are billed too
+
+
+def test_invalid_output_gives_up_after_the_attempt_limit(tmp_path: Path) -> None:
+    request = make_request()
+    adapter = ReplayAdapter({request_key(request): ['{"wrong": 1}', '{"text": "late"}']})
+    llm = LLM(adapter, tmp_path / "book.sqlite", max_attempts=1)
+
+    with pytest.raises(InvalidOutputError, match=request_key(request)):
+        llm.call(request, Greeting)
+
+
+def test_invalid_output_is_never_cached(tmp_path: Path) -> None:
+    request = make_request()
+    database = tmp_path / "book.sqlite"
+    bad = ReplayAdapter({request_key(request): '{"wrong": 1}'})
+    with pytest.raises(InvalidOutputError):
+        LLM(bad, database, max_attempts=1).call(request, Greeting)
+
+    good = ReplayAdapter({request_key(request): '{"text": "hello"}'})
+
+    assert LLM(good, database).call(request, Greeting).output == Greeting(text="hello")
