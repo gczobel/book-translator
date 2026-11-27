@@ -20,6 +20,7 @@ STAGES = (
     "fidelity",
     "polish",
     "post_polish_fidelity",
+    "qa",
 )
 FINISHED = ("done", "nothing found")
 

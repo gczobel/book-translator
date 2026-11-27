@@ -20,6 +20,7 @@ from book_translator.estimate import estimate
 from book_translator.gates import GateError, approve_waiting_gate
 from book_translator.llm import Adapter
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
+from book_translator.qa import print_report
 from book_translator.review import ReviewError
 from book_translator.run import run
 from book_translator.search import Search, WikiSearch
@@ -83,6 +84,7 @@ def main(
             run(args.workspace, adapter, search)
         except CapReachedError as exc:
             sys.exit(f"stopped: {exc}")
+        print_report(args.workspace)
     elif args.command == "approve":
         _approve(args.workspace)
     elif args.command == "status":
