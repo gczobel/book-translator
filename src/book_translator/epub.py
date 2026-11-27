@@ -14,7 +14,8 @@ from urllib.parse import unquote
 
 from lxml import etree
 
-from book_translator.structure import Book, build_book
+from book_translator.inline import EncodedBlock, decode, encode
+from book_translator.structure import Book, build_book, find_element
 
 _CONTAINER = "META-INF/container.xml"
 _XML_SUFFIXES = (".xhtml", ".html", ".htm", ".opf", ".ncx", ".xml")
@@ -67,6 +68,24 @@ class Epub:
     def book(self) -> Book:
         """The book's structure: chapters, scenes, scene breaks and blocks."""
         return build_book(self.spine(), self.read, self._nav_labels())
+
+    def encode_block(self, block_id: str) -> EncodedBlock:
+        """The block's text with its inline markup as codes the LLM can carry through."""
+        return encode(self._block_element(block_id)[1])
+
+    def replace_block(self, block_id: str, encoded: EncodedBlock, text: str) -> None:
+        """Rebuild the block's content from `text`, re-injecting its inline markup."""
+        member, element = self._block_element(block_id)
+        decode(element, encoded, text)
+        root = element.getroottree()
+        self._by_name[member].data = etree.tostring(root, xml_declaration=True, encoding="utf-8")
+
+    def _block_element(self, block_id: str) -> tuple[str, etree._Element]:
+        member = block_id.rpartition("#")[0]
+        element = find_element(etree.fromstring(self.read(member)), block_id)
+        if element is None:
+            raise EpubError(f"no such block: {block_id}")
+        return member, element
 
     def _nav_labels(self) -> dict[tuple[str, str | None], str]:
         """NCX entries as {(member, fragment or None): label}; empty if there is no NCX."""
