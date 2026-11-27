@@ -42,6 +42,8 @@ class CountingAdapter:
         self.calls = 0
 
     def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+        if request.stage == "enrichment":  # covered in test_cli_enrichment.py
+            return RawAnswer("{}")
         if request.stage == "completion":  # not counted either
             return RawAnswer("{}")
         if request.stage == "consolidation":  # not counted: these tests are about extraction
@@ -90,6 +92,7 @@ def test_run_extracts_names_places_and_phrases_per_chapter(workspace: Path) -> N
         ("extraction", "done"),
         ("consolidation", "done"),
         ("completion", "done"),
+        ("enrichment", "done"),
     ]
 
 
@@ -109,6 +112,7 @@ def test_an_interrupted_run_resumes_without_repeating_calls(workspace: Path) -> 
         ("extraction", "done"),
         ("consolidation", "done"),
         ("completion", "done"),
+        ("enrichment", "done"),
     ]
     assert rows(workspace, "select count(*) from extractions") == [(2,)]
 
@@ -158,6 +162,7 @@ def test_raising_the_cap_resumes_without_repeating_or_losing_work(workspace: Pat
         ("extraction", "done"),
         ("consolidation", "done"),
         ("completion", "done"),
+        ("enrichment", "done"),
     ]
     assert rows(workspace, "select round(sum(cost_usd), 4) from spend") == [(0.021,)]
 

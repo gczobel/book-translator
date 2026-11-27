@@ -38,7 +38,7 @@ pythonpath = [".github/scripts"]
 [tool.mypy]
 strict = true
 files = ["src", "tests", ".github/scripts"]
-mypy_path = ["src", ".github/scripts"]
+mypy_path = ["src", "tests", ".github/scripts"]
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]

@@ -15,6 +15,13 @@ from book_translator.llm import LLM, Adapter
 from book_translator.search import Search
 from book_translator.stages.complete import completion_request, completion_schema, merged
 from book_translator.stages.consolidate import consolidation_request
+from book_translator.stages.enrich import (
+    Enrichment,
+    enrichment_request,
+    look_up_names,
+    with_established_names,
+    with_flagged_quotations,
+)
 from book_translator.stages.extract import Extraction, extraction_request
 from book_translator.stages.research import book_title, research
 from book_translator.workspace import DB_NAME, SOURCE_NAME
@@ -37,12 +44,17 @@ def run(workspace: Path, adapter: Adapter, search: Search | None = None) -> None
                 " (term text, rendering text, origin text, source text)"
             )
             db.execute("create table if not exists bible (result text not null)")
+            db.execute(
+                "create table if not exists enrichment"
+                " (term text primary key, rendering text, url text)"
+            )
         if search is not None:
             _research(db, workspace, search)
         llm = LLM(adapter, workspace / DB_NAME, budget=Budget(workspace / DB_NAME))
         _extraction(db, workspace, llm)
         _consolidation(db, llm)
         _completion(db, llm)
+        _enrichment(db, llm, search)
     finally:
         db.close()
 
@@ -111,3 +123,20 @@ def _completion(db: sqlite3.Connection, llm: LLM) -> None:
             "insert into bible values (?)", (merged(part1, result.output, db).model_dump_json(),)
         )
     _set_status(db, "completion", "done")
+
+
+def _enrichment(db: sqlite3.Connection, llm: LLM, search: Search | None) -> None:
+    if _status(db, "enrichment") == "done":
+        return
+    _set_status(db, "enrichment", "running")
+    bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
+    found = llm.call(enrichment_request(STAGE_MODELS["enrichment"], db, bible), Enrichment).output
+    target = db.execute("select value from settings where key = 'target'").fetchone()
+    evaluation = db.execute("select value from settings where key = 'evaluation'").fetchone()
+    if search is not None and evaluation is None:  # ADR 0004: no lookups in evaluation mode
+        look_up_names(db, search, found.names, str(target[0]) if target else "es")
+    enriched = with_flagged_quotations(with_established_names(bible, db), found.quotations)
+    with db:
+        db.execute("delete from bible")
+        db.execute("insert into bible values (?)", (enriched.model_dump_json(),))
+    _set_status(db, "enrichment", "done")
