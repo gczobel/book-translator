@@ -245,6 +245,60 @@ MATTER_CREDITS = page("<p>First published as Un Cuento. Copyright Nobody.</p>\n"
 MATTER_DEDICATION = page("<p><i>For the one who stayed.</i></p>\n")
 MATTER_ABOUT = page("<h2>About the author</h2>\n<p>Nobody lives nowhere.</p>\n")
 
+# An ePubLibre-branded source: the logo on the title page, an ex libris image on the info
+# page, and a page holding nothing but an ex libris, which the NCX, the guide and a link in
+# the info page all point at. The publisher and EPL identifier are branding too.
+BRAND_FILES = [
+    ("tp", "titulo.xhtml"),
+    ("info", "info.xhtml"),
+    ("c1", "ch1.xhtml"),
+    ("c2", "ch2.xhtml"),
+    ("ex", "exlibris.xhtml"),
+]
+BRAND_OPF = (
+    OPF.replace(
+        "    <dc:language>en</dc:language>\n",
+        "    <dc:language>en</dc:language>\n    <dc:publisher>ePubLibre</dc:publisher>\n"
+        '    <dc:identifier opf:scheme="EPL">1234</dc:identifier>\n',
+    )
+    .replace(
+        '    <item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>\n'
+        '    <item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/>\n',
+        '    <item id="epl" href="images/EPL_logo.png" media-type="image/png"/>\n'
+        '    <item id="exl" href="images/ex_libris.png" media-type="image/png"/>\n'
+        + "".join(
+            f'    <item id="{i}" href="{h}" media-type="application/xhtml+xml"/>\n'
+            for i, h in BRAND_FILES
+        ),
+    )
+    .replace(
+        '    <itemref idref="c1"/>\n    <itemref idref="c2"/>\n',
+        "".join(f'    <itemref idref="{i}"/>\n' for i, _ in BRAND_FILES),
+    )
+    .replace(
+        "</package>",
+        '  <guide>\n    <reference type="title-page" title="Title" href="titulo.xhtml"/>\n'
+        '    <reference type="other.exlibris" title="Ex libris" href="exlibris.xhtml"/>\n'
+        "  </guide>\n</package>",
+    )
+)
+BRAND_NCX = NCX.replace(
+    "  </navMap>",
+    '    <navPoint id="n3" playOrder="3">\n'
+    '      <navLabel><text>Ex libris</text></navLabel><content src="exlibris.xhtml"/>\n'
+    "    </navPoint>\n  </navMap>",
+)
+BRAND_TITLE = page(
+    '<div class="tlogo"><img src="images/EPL_logo.png" alt="ePubLibre"/></div>\n'
+    '<h1 class="ttitulo">Synthetic Tale</h1>\n'
+)
+BRAND_INFO = page(
+    '<div class="info">\n<p>Original title: Un Cuento</p>\n'
+    '<p>Digital editor: <a href="exlibris.xhtml">Titivillus</a></p>\n</div>\n'
+    '<div class="bloque_exlibris"><img src="images/ex_libris.png" alt="Ex libris"/></div>\n'
+)
+BRAND_EXLIBRIS = page('<div><img src="images/ex_libris.png" alt="Ex libris"/></div>\n')
+
 # EPUB 3 with semantic markup: file names say nothing, `epub:type` does. Chapters come from
 # the `nav.xhtml` (no NCX); notes use `noteref` references and `footnote` asides.
 EPUB3_OPF = """<?xml version="1.0" encoding="UTF-8"?>
@@ -378,6 +432,20 @@ def main() -> None:
         "toc-page.epub",
         {"ch1.xhtml": PLAIN_1, "ch2.xhtml": PLAIN_2, "contents.xhtml": TOC_PAGE},
         opf=TOC_PAGE_OPF,
+    )
+    write(
+        "epublibre.epub",
+        {
+            "titulo.xhtml": BRAND_TITLE,
+            "info.xhtml": BRAND_INFO,
+            "ch1.xhtml": PLAIN_1,
+            "ch2.xhtml": PLAIN_2,
+            "exlibris.xhtml": BRAND_EXLIBRIS,
+            "images/EPL_logo.png": PNG,
+            "images/ex_libris.png": PNG,
+        },
+        opf=BRAND_OPF,
+        ncx=BRAND_NCX,
     )
     write("epub3.epub", EPUB3_PARTS, opf=EPUB3_OPF, nav=EPUB3_NAV, ncx=None)
 

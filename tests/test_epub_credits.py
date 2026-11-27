@@ -1,10 +1,12 @@
 """Seam 2: the credits page and source branding removal, tested through the codec's interface."""
 
+import posixpath
 from pathlib import Path
+from urllib.parse import unquote
 
 from lxml import etree
 
-from book_translator.credits import Credits, add_credits_page
+from book_translator.credits import Credits, add_credits_page, remove_branding
 from book_translator.epub import Epub, open_epub
 
 FIXTURES = Path(__file__).parent / "fixtures" / "epub"
@@ -52,3 +54,55 @@ def test_an_existing_credits_page_is_replaced_not_duplicated() -> None:
     assert "machine-assisted" in text
     assert "First published as Un Cuento" not in text
     assert epub.spine().count("OEBPS/credits.xhtml") == 1
+
+
+def dangling(epub: Epub) -> list[str]:
+    """Every href, src or content reference to a member the archive no longer holds."""
+    missing = []
+    for name in epub.names:
+        if not name.endswith((".xhtml", ".opf", ".ncx")):
+            continue
+        for element in etree.fromstring(epub.read(name)).iter():
+            if not isinstance(element.tag, str):
+                continue
+            for attr in ("href", "src"):
+                target = element.get(attr)
+                if target and "://" not in target:
+                    path = posixpath.join(posixpath.dirname(name), unquote(target.split("#")[0]))
+                    if target.split("#")[0] and posixpath.normpath(path) not in epub.names:
+                        missing.append(f"{name} -> {target}")
+    return missing
+
+
+def test_branding_images_page_and_references_are_removed_without_dangling_references() -> None:
+    epub = open_epub(FIXTURES / "epublibre.epub")
+
+    remove_branding(epub)
+
+    assert not [n for n in epub.names if "EPL_logo" in n or "ex_libris" in n or "exlibris" in n]
+    assert epub.spine() == [
+        "OEBPS/titulo.xhtml",
+        "OEBPS/info.xhtml",
+        "OEBPS/ch1.xhtml",
+        "OEBPS/ch2.xhtml",
+    ]
+    package = epub.read("OEBPS/content.opf").decode()
+    for gone in ["EPL_logo", "ex_libris", "exlibris", "ePubLibre", "EPL"]:
+        assert gone not in package
+    assert "Ex libris" not in epub.read("OEBPS/toc.ncx").decode()
+    info = epub.read("OEBPS/info.xhtml").decode()
+    assert "bloque_exlibris" not in info and "<img" not in info
+    assert "Titivillus" in info
+    assert "tlogo" not in epub.read("OEBPS/titulo.xhtml").decode()
+    assert dangling(epub) == []
+
+
+def test_credits_added_after_branding_removal_leave_a_consistent_book() -> None:
+    epub = open_epub(FIXTURES / "epublibre.epub")
+
+    remove_branding(epub)
+    add_credits_page(epub, CREDITS)
+
+    assert "OEBPS/credits.xhtml" in epub.spine()
+    assert "machine-assisted" in credits_text(epub)
+    assert dangling(epub) == []
