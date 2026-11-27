@@ -334,4 +334,4 @@ def test_status_reports_the_draft_stage(ws: Path, capsys: pytest.CaptureFixture[
 
     out = capsys.readouterr().out
     assert "Stage: tk_resolution (done)" in out
-    assert "nothing left to run" in out
+    assert "Review gate: tk is waiting" in out
