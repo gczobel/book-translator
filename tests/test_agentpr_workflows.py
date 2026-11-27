@@ -53,3 +53,14 @@ def test_the_review_workflow_is_a_base_branch_check_that_never_posts_reviews() -
     assert "pull-requests: write" not in text
     assert "ref:" not in text  # never checks out the PR head
     assert "secrets." not in text  # the placeholder holds no secret
+
+
+def test_the_merge_sweep_ignores_the_event_commit_and_has_no_schedule() -> None:
+    text = _text("agent-pr")
+    loaded = yaml.safe_load(text)
+    triggers = loaded.get("on", loaded.get(True))
+    assert "schedule" not in triggers
+    assert "inputs" not in (triggers["workflow_dispatch"] or {})
+    for env_name in ("AGENTPR_SHA", "AGENTPR_PR"):
+        assert env_name not in text
+    assert "${{ github.event.workflow_run.head_sha" not in text

@@ -65,7 +65,7 @@ def _check_pages(
 
 def _routes(**over: Any) -> dict[str, Any]:
     routes: dict[str, Any] = {
-        f"/repos/{REPO}/commits/{SHA}/pulls": [_raw_pr()],
+        f"/repos/{REPO}/pulls?state=open": [_raw_pr()],
         f"/repos/{REPO}/git/matching-refs/tags/v": [],
         f"/repos/{REPO}/pulls/7": _raw_pr(),
         f"/repos/{REPO}/pulls/7/reviews": [],
@@ -79,7 +79,7 @@ def _routes(**over: Any) -> dict[str, Any]:
 def _run(tmp_path: Path, api: FakeApi, **env: str) -> tuple[int, str]:
     out = tmp_path / "out"
     out.write_text("")
-    environment = {"AGENTPR_REPO": REPO, "GITHUB_OUTPUT": str(out), "AGENTPR_SHA": SHA, **env}
+    environment = {"AGENTPR_REPO": REPO, "GITHUB_OUTPUT": str(out), **env}
     code = run(environment, api)
     return code, out.read_text()
 
@@ -90,15 +90,12 @@ def test_a_ready_agent_pr_is_published_for_merging(tmp_path: Path) -> None:
     assert out.splitlines() == ["merge=true", "pr=7", f"sha={SHA}"]
 
 
-def test_the_pr_number_can_be_given_instead_of_the_commit(tmp_path: Path) -> None:
-    env = {"AGENTPR_SHA": "", "AGENTPR_PR": "7"}
-    code, out = _run(tmp_path, FakeApi(_routes()), **env)
-    assert (code, out.splitlines()[0]) == (0, "merge=true")
-
-
-def test_giving_both_or_neither_is_an_error(tmp_path: Path) -> None:
-    assert _run(tmp_path, FakeApi(_routes()), AGENTPR_PR="7")[0] == 2
-    assert _run(tmp_path, FakeApi(_routes()), AGENTPR_SHA="")[0] == 2
+def test_the_event_commit_is_ignored_so_a_base_tip_head_sha_still_finds_the_pr(
+    tmp_path: Path,
+) -> None:
+    code, out = _run(tmp_path, FakeApi(_routes()), AGENTPR_SHA="9" * 40, AGENTPR_PR="99")
+    assert code == 0
+    assert out.splitlines() == ["merge=true", "pr=7", f"sha={SHA}"]
 
 
 def test_a_failing_check_is_not_an_error_just_no_merge(tmp_path: Path) -> None:
@@ -115,41 +112,50 @@ def test_a_failing_check_is_not_an_error_just_no_merge(tmp_path: Path) -> None:
 
 def test_another_authors_pr_is_skipped_without_reading_its_files(tmp_path: Path) -> None:
     other = _raw_pr(user={"id": OWNER_ID, "type": "User"})
-    api = FakeApi(_routes(**{f"/repos/{REPO}/pulls/7": other}))
+    api = FakeApi(_routes(**{f"/repos/{REPO}/pulls?state=open": [other]}))
     code, out = _run(tmp_path, api)
     assert (code, out.strip()) == (0, "merge=false")
     assert not any("/files" in p or "check-runs" in p for p in api.requested)
 
 
-def test_a_commit_with_no_open_pr_merges_nothing(tmp_path: Path) -> None:
-    api = FakeApi(_routes(**{f"/repos/{REPO}/commits/{SHA}/pulls": []}))
+def test_no_open_pr_merges_nothing(tmp_path: Path) -> None:
+    api = FakeApi(_routes(**{f"/repos/{REPO}/pulls?state=open": []}))
     assert _run(tmp_path, api) == (0, "merge=false\n")
 
 
-def test_a_pr_whose_head_moved_on_is_not_a_candidate() -> None:
-    moved = _raw_pr(head={"sha": "2" * 40, "ref": "agent/x", "repo": {"full_name": REPO}})
-    api = FakeApi(_routes(**{f"/repos/{REPO}/commits/{SHA}/pulls": [moved]}))
-    assert collect.candidates(api, REPO, SHA) == []
+def test_only_agent_app_prs_are_listed_lowest_number_first() -> None:
+    other = _raw_pr(number=3, user={"id": OWNER_ID, "type": "User"})
+    listing = [_raw_pr(number=9), other, _raw_pr(number=5)]
+    api = FakeApi(_routes(**{f"/repos/{REPO}/pulls?state=open": listing}))
+    assert collect.agent_pr_numbers(api, REPO) == [5, 9]
 
 
-def test_a_closed_pr_is_not_a_candidate() -> None:
-    api = FakeApi(_routes(**{f"/repos/{REPO}/commits/{SHA}/pulls": [_raw_pr(state="closed")]}))
-    assert collect.candidates(api, REPO, SHA) == []
-
-
-def test_two_ready_prs_for_one_commit_is_an_error(tmp_path: Path) -> None:
-    two = {f"/repos/{REPO}/commits/{SHA}/pulls": [_raw_pr(), _raw_pr(number=8)]}
-    routes = _routes(
-        **two,
+def _second_pr_routes(**over: Any) -> dict[str, Any]:
+    sha2 = "3" * 40
+    head = {"sha": sha2, "ref": "agent/y", "repo": {"full_name": REPO}}
+    return _routes(
         **{
-            f"/repos/{REPO}/pulls/8": _raw_pr(number=8),
+            f"/repos/{REPO}/pulls?state=open": [_raw_pr(), _raw_pr(number=8, head=head)],
+            f"/repos/{REPO}/pulls/8": _raw_pr(number=8, head=head),
             f"/repos/{REPO}/pulls/8/reviews": [],
             f"/repos/{REPO}/pulls/8/files": [{"filename": "src/b.py"}],
-        },
+            f"/repos/{REPO}/commits/{sha2}/check-runs?per_page=100&page=1": _check_pages(),
+            **over,
+        }
     )
-    code, out = _run(tmp_path, FakeApi(routes))
-    assert code == 2
-    assert "merge=true" not in out
+
+
+def test_with_two_ready_prs_exactly_the_lowest_is_published(tmp_path: Path) -> None:
+    code, out = _run(tmp_path, FakeApi(_second_pr_routes()))
+    assert code == 0
+    assert out.splitlines() == ["merge=true", "pr=7", f"sha={SHA}"]
+
+
+def test_a_blocked_first_pr_does_not_hide_a_ready_second_one(tmp_path: Path) -> None:
+    held = _raw_pr(labels=[{"name": "hold"}])
+    code, out = _run(tmp_path, FakeApi(_second_pr_routes(**{f"/repos/{REPO}/pulls/7": held})))
+    assert code == 0
+    assert out.splitlines()[:2] == ["merge=true", "pr=8"]
 
 
 @pytest.mark.parametrize(
@@ -258,9 +264,7 @@ def test_an_owner_review_without_a_readable_commit_fails_closed(tmp_path: Path) 
 def test_a_malformed_environment_fails_closed(tmp_path: Path) -> None:
     api = FakeApi(_routes())
     assert _run(tmp_path, api, AGENTPR_REPO="not a repo")[0] == 2
-    assert _run(tmp_path, api, AGENTPR_SHA="abc")[0] == 2
-    assert _run(tmp_path, api, AGENTPR_SHA="", AGENTPR_PR="7; rm")[0] == 2
-    assert run({"AGENTPR_REPO": REPO, "AGENTPR_SHA": SHA}, api) == 2  # no GITHUB_OUTPUT
+    assert run({"AGENTPR_REPO": REPO}, api) == 2  # no GITHUB_OUTPUT
     assert run({"AGENTPR_REPO": REPO, "GITHUB_OUTPUT": str(tmp_path / "o")}) == 2
 
 

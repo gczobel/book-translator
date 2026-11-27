@@ -9,32 +9,29 @@ name: agent-pr
 # This is NOT the Dependabot/release sweep: it never arms auto-merge and never touches those
 # PRs. The rule lives in .github/scripts/agentpr/core.py (tested). It requires: author is the
 # Agent App's bot ID, head repo is this repo, branch under agent/, any guarded path covered by
-# the owner's approval on the head commit, every required check (guard included) last succeeded from GitHub Actions, no `hold`
-# label, no owner change request. The pause switch gates every job.
+# the owner's approval on the head commit, every required check (guard included) last succeeded
+# from GitHub Actions, no `hold` label, no owner change request. The pause switch gates every job.
 #
 # `workflow_run` runs this file and its scripts from the default branch, and nothing from a PR
-# is checked out or run. The event only says which commit finished; the PR is found and judged
-# through the API, so event payload text is never trusted. The merge pins the head commit, so a
-# push after the decision is refused. Rebase-merge keeps the agent's atomic commits.
+# is checked out or run. The event only says that something finished (its head_sha may even be
+# the base branch's tip, so it is not used); every open Agent App PR is found and judged through
+# the API, so event payload text is never trusted. At most one PR merges per run, and the merge
+# pins the head commit, so a push after the decision is refused. Rebase-merge keeps the agent's
+# atomic commits. There is no schedule: the next finished workflow re-runs the sweep.
 on:
   workflow_run: # zizmor: ignore[dangerous-triggers] nothing from the PR is checked out or run; see above
     workflows: [ci, guard, hold, workflow-security, agent-pr-review]
     types: [completed]
-  # The owner can run the same decision for one PR by hand (a phone is enough).
+  # The owner can run the same sweep by hand (a phone is enough).
   workflow_dispatch:
-    inputs:
-      pr:
-        description: Pull request number
-        type: string
-        required: true
 
 # Least privilege by default; each job asks for what it needs (ADR 0005).
 permissions: {}
 
-# One queue per PR. Events for the same commit wait their turn; the decision reads live state,
-# so a later run subsumes an earlier one. Different PRs don't block each other.
+# One sweep at a time. Every run lists all open Agent App PRs and reads live state, so a later
+# run subsumes an earlier one and a queued run never judges stale facts.
 concurrency:
-  group: agent-pr-${{ github.event.workflow_run.head_sha || inputs.pr }}
+  group: agent-pr
   cancel-in-progress: false
 
 jobs:
@@ -71,8 +68,6 @@ jobs:
           PYTHONPATH: .github/scripts
           GH_TOKEN: ${{ steps.token.outputs.token }}
           AGENTPR_REPO: ${{ github.repository }}
-          AGENTPR_SHA: ${{ github.event.workflow_run.head_sha }}
-          AGENTPR_PR: ${{ inputs.pr }}
       # `pr` and `sha` are written only by the script, which validated them (a number and a
       # 40-character hash). The head commit is pinned: a push after the decision is refused.
       - name: Rebase-merge the pull request

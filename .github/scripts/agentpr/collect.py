@@ -10,7 +10,7 @@ import re
 from typing import Any, Protocol
 
 from agentpr.core import CheckRun, OwnerReview, PullFacts
-from ghapi.identities import OWNER_ID
+from ghapi.identities import AGENT_BOT_ID, OWNER_ID
 from ghapi.repo import split_repo
 from guard.collect import GITHUB_FILE_LIST_LIMIT
 
@@ -60,17 +60,20 @@ def require_repo(value: Any, what: str) -> str:
     return repo
 
 
-def candidates(api: Api, repo: str, sha: str) -> list[int]:
-    """Open PRs of this repository whose head is exactly `sha`, found by the API, not the event."""
-    if not _SHA.fullmatch(sha):
-        raise AgentPrError("the commit is not a full hash")
+def agent_pr_numbers(api: Api, repo: str) -> list[int]:
+    """Numbers of the open PRs the Agent App wrote, lowest first, found by listing the API.
+
+    The event that woke us up says nothing about which PR to judge: a `workflow_run`'s head_sha
+    may be the base branch's tip. Only the author is checked here; `pull_facts` and the rule
+    judge the rest.
+    """
     numbers = []
-    for raw in api.get_pages(f"/repos/{repo}/commits/{sha}/pulls"):
+    for raw in api.get_pages(f"/repos/{repo}/pulls?state=open"):
         pr = _obj(raw, "pull request")
-        head = _obj(pr.get("head"), "pull request head")
-        if pr.get("state") == "open" and head.get("sha") == sha:
+        user = _obj(pr.get("user"), "pull request author")
+        if _int(user.get("id"), "author id") == AGENT_BOT_ID:
             numbers.append(_int(pr.get("number"), "pull request number"))
-    return numbers
+    return sorted(numbers)
 
 
 def tag_names(api: Api, repo: str) -> list[str]:
