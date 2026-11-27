@@ -207,3 +207,12 @@ def test_run_fails_loudly_when_github_fails() -> None:
 
 def test_run_needs_a_token_when_no_client_is_given() -> None:
     assert run(ENV) != 0
+
+
+@pytest.mark.parametrize(
+    "reason", ["repair-attempts-exhausted", "repair-agent-failed", "repair-rejected"]
+)
+def test_the_repair_workflow_has_a_reason_code_for_each_way_it_gives_up(reason: str) -> None:
+    api = FakeApi()
+    assert escalate(api, REPO, _request(reason=reason)) == "created #99"
+    assert api.posts[0][1]["labels"] == ["ready-for-human"]

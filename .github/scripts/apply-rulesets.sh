@@ -21,6 +21,12 @@ for file in "$dir"/*.json; do
   fi
 done
 
+# Squash merges carry the PR title and a blank body, so no commit body (a `BREAKING CHANGE:`
+# footer, a second `feat:` line) can steer release-please's version bump (ticket #20).
+gh api --method PATCH "repos/$repo" \
+  -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=BLANK --silent
+echo "squash merge commits: PR title, blank body"
+
 # Fork PR runs need the owner's approval (a repository Actions setting, not a ruleset).
 gh api --method PUT "repos/$repo/actions/permissions/fork-pr-contributor-approval" \
   -f approval_policy=all_external_contributors --silent

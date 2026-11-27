@@ -1,0 +1,98 @@
+# NOT ACTIVE. Held back from .github/workflows/ on purpose. The first `v*` tag this workflow
+# creates ends ADR 0005 phase 1: from then on the agent merge rule (agentpr) refuses every agent
+# PR until phase 2 (owner approval on each agent PR) exists. Move this file to .github/workflows/
+# only when phase 2 is built, or when the owner wants the first release and accepts that switch.
+name: release
+
+# release-please (ticket #20, ADR 0005 "Releases"). On every push to main it keeps one release PR
+# up to date from the Conventional Commits since the last tag. Merging that PR (it is armed like
+# Dependabot's, see arming.yml) makes release-please write the changelog, create the `v*` tag and
+# the GitHub Release. Configuration: release-please-config.json and .release-please-manifest.json.
+#
+# It runs as the maintenance App, never as GITHUB_TOKEN: a tag or PR created with GITHUB_TOKEN
+# triggers no workflows, so the release PR would get no CI and the tag no verification
+# (release-verify.yml). The App is also the only identity `tags-create` lets create a tag.
+# Squash merges use the PR title and a blank body (repository setting, applied by
+# .github/scripts/apply-rulesets.sh), so no commit body can steer the version.
+#
+# Main context only: `push` is limited to main, the job also refuses any other ref (a manual
+# dispatch can name another branch), and the `maintenance` environment only lets main in.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege by default; each job asks for what it needs (ADR 0005).
+permissions: {}
+
+# One run at a time; a queued run sees everything the earlier one did.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    permissions:
+      contents: read # a called workflow can't exceed its caller's permissions
+    uses: ./.github/workflows/pause.yml # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+
+  release-please:
+    needs: [gate]
+    if: ${{ needs.gate.outputs.paused == 'false' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    environment: maintenance # main-only: the App key is not available anywhere else
+    permissions: {} # the job token is not used; the App token below does the work
+    steps:
+      # Contents: the changelog commit, the tag and the Release. Pull requests: the release PR.
+      # Issues: release-please's `autorelease:` labels are created through the issues API.
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        id: token
+        with:
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  escalate-failed:
+    needs: [gate, release-please]
+    if: ${{ always() && needs.gate.outputs.paused == 'false' && needs.release-please.result != 'success' && needs.release-please.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+        with:
+          reason: workflow-failed
+          key: release-failed
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
+
+  # The pause gate itself errored: paused is empty, which is not a genuine pause ('true'),
+  # so this is a failure to escalate. A real pause never reaches this job.
+  escalate-gate-failed:
+    needs: [gate]
+    if: ${{ always() && needs.gate.result == 'failure' }}
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+        with:
+          reason: workflow-failed
+          key: release-gate-failed
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
