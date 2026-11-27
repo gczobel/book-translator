@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from guard.collect import GuardError
+from guard.errors import GuardError
 
 _API = "https://api.github.com"
 _NEXT = re.compile(r'<([^>]+)>;\s*rel="next"')
@@ -26,7 +26,7 @@ class HttpApi:
     def _open(self, url: str, accept: str) -> tuple[bytes, str]:
         if not url.startswith(_API + "/"):
             raise GuardError("refusing to send the token to a non-GitHub URL")
-        request = urllib.request.Request(  # noqa: S310 - scheme and host checked above
+        request = urllib.request.Request(
             url,
             headers={
                 "Authorization": f"Bearer {self._token}",
@@ -35,7 +35,7 @@ class HttpApi:
                 "User-Agent": "book-translator-guard",
             },
         )
-        with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+        with urllib.request.urlopen(request, timeout=30) as response:
             return response.read(), response.headers.get("Link", "")
 
     def get_json(self, path: str) -> Any:

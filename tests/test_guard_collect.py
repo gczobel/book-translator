@@ -5,7 +5,8 @@ from typing import Any
 import pytest
 
 from guard import rules
-from guard.collect import GuardError, collect
+from guard.collect import collect
+from guard.errors import GuardError
 from guard.run import run
 
 REPO = "o/r"
@@ -104,12 +105,12 @@ def test_symlinks_come_from_both_trees() -> None:
             },
             f"/repos/{REPO}/git/trees/{MERGE_BASE}?recursive=1": {
                 "truncated": False,
-                "tree": [{"path": "b", "mode": "120000"}],
+                "tree": [{"path": "b", "mode": "120000"}, {"path": "sub", "mode": "160000"}],
             },
         },
     )
     _, _, _, snapshot = collect(FakeApi(routes), REPO, 7)
-    assert snapshot.symlinks == frozenset({"a", "b"})
+    assert snapshot.symlinks == frozenset({"a", "b", "sub"})  # a gitlink counts too
 
 
 def test_renames_carry_the_previous_path() -> None:

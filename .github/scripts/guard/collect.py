@@ -11,15 +11,14 @@ import re
 from typing import Any, Protocol
 
 from guard import rules
+from guard.errors import GuardError
 
 GITHUB_FILE_LIST_LIMIT = 3000  # the PR files API never returns more than this
 
+# Symlinks and submodule gitlinks: entries that point somewhere else.
+_LINK_MODES = {"120000", "160000"}
 _SHA = re.compile(r"[0-9a-f]{40}")
 _REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-
-
-class GuardError(Exception):
-    """The inputs are incomplete or malformed, so the guard can't judge. Fails closed."""
 
 
 class Api(Protocol):
@@ -34,27 +33,27 @@ class Api(Protocol):
         ...
 
 
-def _int(value: Any, what: str) -> int:
+def _require_int(value: Any, what: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise GuardError(f"{what} is not an integer")
     return value
 
 
-def _str(value: Any, what: str) -> str:
+def _require_str(value: Any, what: str) -> str:
     if not isinstance(value, str) or not value:
         raise GuardError(f"{what} is not a string")
     return value
 
 
-def _sha(value: Any, what: str) -> str:
-    sha = _str(value, what)
+def _require_sha(value: Any, what: str) -> str:
+    sha = _require_str(value, what)
     if not _SHA.fullmatch(sha):
         raise GuardError(f"{what} is not a commit hash")
     return sha
 
 
-def _repo(value: Any, what: str) -> str:
-    repo = _str(value, what)
+def require_repo(value: Any, what: str) -> str:
+    repo = _require_str(value, what)
     if not _REPO.fullmatch(repo):
         raise GuardError(f"{what} is not owner/name")
     return repo
@@ -77,13 +76,17 @@ def _pull_request(raw: Any, number: int) -> tuple[rules.PullRequest, str, int]:
         raise GuardError("pull request base repository is missing")
     pr = rules.PullRequest(
         number=number,
-        author_id=_int(user.get("id"), "author id"),
-        base_repo=_repo(base_repo.get("full_name"), "base repository"),
-        head_repo=_repo(head_repo.get("full_name"), "head repository"),
-        head_ref=_str(head.get("ref"), "head ref"),
-        head_sha=_sha(head.get("sha"), "head sha"),
+        author_id=_require_int(user.get("id"), "author id"),
+        base_repo=require_repo(base_repo.get("full_name"), "base repository"),
+        head_repo=require_repo(head_repo.get("full_name"), "head repository"),
+        head_ref=_require_str(head.get("ref"), "head ref"),
+        head_sha=_require_sha(head.get("sha"), "head sha"),
     )
-    return pr, _sha(base.get("sha"), "base sha"), _int(raw.get("changed_files"), "changed_files")
+    return (
+        pr,
+        _require_sha(base.get("sha"), "base sha"),
+        _require_int(raw.get("changed_files"), "changed_files"),
+    )
 
 
 def _files(api: Api, repo: str, number: int, expected: int) -> list[rules.ChangedFile]:
@@ -99,8 +102,8 @@ def _files(api: Api, repo: str, number: int, expected: int) -> list[rules.Change
         previous = raw.get("previous_filename")
         files.append(
             rules.ChangedFile(
-                path=_str(raw.get("filename"), "filename"),
-                status=_str(raw.get("status"), "status"),
+                path=_require_str(raw.get("filename"), "filename"),
+                status=_require_str(raw.get("status"), "status"),
                 patch=patch if isinstance(patch, str) else None,
                 previous_path=previous if isinstance(previous, str) else None,
             )
@@ -120,9 +123,9 @@ def _reviews(api: Api, repo: str, number: int) -> list[rules.Review]:
             continue
         reviews.append(
             rules.Review(
-                user_id=_int(user.get("id"), "reviewer id"),
-                state=_str(raw.get("state"), "review state"),
-                commit_id=_str(raw.get("commit_id"), "review commit"),
+                user_id=_require_int(user.get("id"), "reviewer id"),
+                state=_require_str(raw.get("state"), "review state"),
+                commit_id=_require_str(raw.get("commit_id"), "review commit"),
             )
         )
     return reviews
@@ -136,9 +139,9 @@ def _symlinks(api: Api, repo: str, sha: str) -> set[str]:
     if not isinstance(entries, list):
         raise GuardError("tree has no entries")
     return {
-        _str(e.get("path"), "tree path")
+        _require_str(e.get("path"), "tree path")
         for e in entries
-        if isinstance(e, dict) and e.get("mode") == "120000"
+        if isinstance(e, dict) and e.get("mode") in _LINK_MODES
     }
 
 
@@ -151,7 +154,7 @@ def collect(
     reviews = _reviews(api, repo, number)
 
     compare = api.get_json(f"/repos/{pr.base_repo}/compare/{base_sha}...{pr.head_sha}")
-    merge_base = _sha(
+    merge_base = _require_sha(
         (compare.get("merge_base_commit") or {}).get("sha") if isinstance(compare, dict) else None,
         "merge base",
     )

@@ -7,9 +7,8 @@ from collections.abc import Mapping
 
 from guard import rules
 from guard.api import HttpApi
-from guard.collect import Api, GuardError, collect
-
-_REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+from guard.collect import Api, collect, require_repo
+from guard.errors import GuardError
 
 
 def run(env: Mapping[str, str], api: Api | None = None) -> int:
@@ -18,10 +17,10 @@ def run(env: Mapping[str, str], api: Api | None = None) -> int:
     Every failure to decide is a non-zero exit: the check fails closed.
     """
     try:
-        repo = env.get("GUARD_REPO", "")
+        repo = require_repo(env.get("GUARD_REPO"), "GUARD_REPO")
         number_text = env.get("GUARD_PR", "")
-        if not _REPO.fullmatch(repo) or not re.fullmatch(r"[0-9]+", number_text):
-            raise GuardError("GUARD_REPO or GUARD_PR is missing or malformed")
+        if not re.fullmatch(r"[0-9]+", number_text):
+            raise GuardError("GUARD_PR is missing or malformed")
         if api is None:
             token = env.get("GH_TOKEN", "")
             if not token:
