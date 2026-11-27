@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from book_translator.evaluate.embed import Embedder
     from book_translator.llm import Adapter
     from book_translator.search import Search
 
@@ -15,7 +16,8 @@ def main(
     *,
     adapter: "Adapter | None" = None,
     search: "Search | None" = None,
+    embedder: "Embedder | None" = None,
 ) -> None:
     from book_translator.cli import main as cli_main
 
-    cli_main(argv, adapter=adapter, search=search)
+    cli_main(argv, adapter=adapter, search=search, embedder=embedder)

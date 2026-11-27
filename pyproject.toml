@@ -46,6 +46,10 @@ explicit_package_bases = true
 module = ["fontTools.*"]
 ignore_missing_imports = true  # fontTools ships no type information
 
+[[tool.mypy.overrides]]
+module = ["sentence_transformers.*"]
+ignore_missing_imports = true  # optional dependency, not installed in the dev environment
+
 [tool.ruff]
 line-length = 100
 src = ["src", "tests", ".github/scripts"]
