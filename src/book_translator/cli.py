@@ -1,4 +1,4 @@
-"""Command-line interface. Only `init` exists so far."""
+"""Command-line interface: init, run, status, approve, export and evaluate."""
 
 import argparse
 import json
