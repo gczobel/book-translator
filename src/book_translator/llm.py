@@ -2,7 +2,8 @@
 
 import hashlib
 import json
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -27,6 +28,9 @@ class LLMRequest:
     prompt: str
     bible_slice: str
     source_text: str
+    # Filled in by `LLM.call` for the adapter; not part of `request_key`, so recordings stay valid.
+    output_schema: str = ""
+    feedback: str = ""
 
 
 @dataclass(frozen=True)
@@ -78,6 +82,15 @@ def request_key(request: LLMRequest) -> str:
     return hashlib.sha256(json.dumps(parts).encode()).hexdigest()
 
 
+_FENCE = re.compile(r"^```[A-Za-z0-9_-]*\s*\n(.*?)\n?```\s*$", re.DOTALL)
+
+
+def strip_fences(text: str) -> str:
+    """Models often wrap JSON in a markdown code fence; take what is inside it."""
+    match = _FENCE.match(text.strip())
+    return match.group(1) if match else text
+
+
 def _projected_cost(request: LLMRequest) -> float:
     """A rough guess before the call: about 4 characters per token, and as many tokens back."""
     tokens = (len(request.prompt) + len(request.bible_slice) + len(request.source_text)) // 4
@@ -104,10 +117,13 @@ class LLM:
             return Result(schema.model_validate_json(cached), NO_USAGE)
         input_tokens = output_tokens = 0
         error: ValidationError | None = None
+        asked = replace(request, output_schema=json.dumps(schema.model_json_schema()))
         for attempt in range(self._max_attempts):
+            if error is not None:
+                asked = replace(asked, feedback=str(error))
             if self._budget is not None:
                 self._budget.check(_projected_cost(request))
-            raw = self._adapter.complete(request, key, attempt)
+            raw = self._adapter.complete(asked, key, attempt)
             if self._budget is not None:
                 self._budget.record(
                     request.stage, cost_of(request.model, raw.input_tokens, raw.output_tokens)
@@ -115,11 +131,11 @@ class LLM:
             input_tokens += raw.input_tokens
             output_tokens += raw.output_tokens
             try:
-                output = schema.model_validate_json(raw.text)
+                output = schema.model_validate_json(strip_fences(raw.text))
             except ValidationError as exc:
                 error = exc
                 continue
-            self._cache.put(key, raw.text)
+            self._cache.put(key, strip_fences(raw.text))
             cost = cost_of(request.model, input_tokens, output_tokens)
             return Result(output, Usage(input_tokens, output_tokens, cost))
         raise InvalidOutputError(
