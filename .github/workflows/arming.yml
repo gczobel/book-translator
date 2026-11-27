@@ -1,0 +1,145 @@
+name: arming
+
+# Green Dependabot and release-please PRs merge themselves after the age gate (ticket #17,
+# ADR 0005 "Dependencies"). Every trigger does the same thing: sweep ALL open PRs and arm the
+# ones that qualify, so a missed event is repaired by the next one. No event data is read, so no
+# PR text can steer it. The decisions live in .github/scripts/arming (tested); this file only
+# wires them together.
+#
+# Runs in the main context only: `workflow_run` and `schedule` always use the default branch's
+# copy, `push` is limited to main, and the arm job's environment only lets main in. It never runs
+# on `pull_request`, and it never checks out or runs PR code: the PR's uv.lock is fetched through
+# the API as data and handed to the age gate, which only parses it.
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] runs from main, reads no event data and never checks out the PR; see above
+    workflows: [ci]
+    types: [completed]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "29 7 * * *"
+  workflow_dispatch:
+
+# Least privilege by default; each job asks for what it needs (ADR 0005).
+permissions: {}
+
+# One sweep at a time; a queued sweep sees everything the earlier one did.
+concurrency:
+  group: arming
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    permissions:
+      contents: read # a called workflow can't exceed its caller's permissions
+    uses: ./.github/workflows/pause.yml # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+
+  # No write credentials here: it reads PRs and runs the age gate, and passes on only the PR
+  # numbers and head commits that may be armed.
+  select:
+    needs: [gate]
+    if: ${{ needs.gate.outputs.paused == 'false' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      armable: ${{ steps.select.outputs.armable }}
+      ok: ${{ steps.select.outputs.ok }}
+    steps:
+      # The default branch: its uv.lock is the age gate's BASE_LOCK.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - id: select
+        run: python3 -m arming select
+        env:
+          PYTHONPATH: .github/scripts
+          GH_TOKEN: ${{ github.token }}
+          ARMING_BASE_LOCK: ${{ github.workspace }}/uv.lock
+          ARMING_WORKDIR: ${{ runner.temp }}
+
+  # The only job with write access. It re-checks each PR against the live state and pins the
+  # merge to the head commit the age gate saw.
+  arm:
+    needs: [gate, select]
+    if: ${{ needs.gate.outputs.paused == 'false' && needs.select.result == 'success' && needs.select.outputs.armable != '[]' && needs.select.outputs.armable != '' }}
+    runs-on: ubuntu-latest
+    environment: maintenance # main-only: the App key is not available anywhere else
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # Enabling auto-merge needs pull-requests write; merging an already-green PR needs contents write.
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        id: token
+        with:
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+          permission-contents: write
+      - run: python3 -m arming arm
+        env:
+          PYTHONPATH: .github/scripts
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          ARMING_TARGETS: ${{ needs.select.outputs.armable }}
+
+  escalate-select-failed:
+    needs: [gate, select]
+    # Anything but a clean 'ok' (a PR that couldn't be checked, a crash, a cancel) escalates;
+    # `||` is avoided on purpose because the pause audit only accepts a gate comparison joined by `&&`.
+    if: ${{ always() && needs.gate.outputs.paused == 'false' && needs.select.outputs.ok != 'true' }}
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+        with:
+          reason: workflow-failed
+          key: arming-select-failed
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
+
+  escalate-arm-failed:
+    needs: [gate, arm]
+    if: ${{ always() && needs.gate.outputs.paused == 'false' && needs.arm.result != 'success' && needs.arm.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+        with:
+          reason: workflow-failed
+          key: arming-arm-failed
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
+
+  # The pause gate itself errored: paused is empty, which is not a genuine pause ('true'),
+  # so this is a failure to escalate. A real pause never reaches this job.
+  escalate-gate-failed:
+    needs: [gate]
+    if: ${{ always() && needs.gate.result == 'failure' }}
+    runs-on: ubuntu-latest
+    environment: maintenance
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/escalate # zizmor: ignore[self-repository] actionlint 1.7.12 can't parse `$/` yet; switch then
+        with:
+          reason: workflow-failed
+          key: arming-gate-failed
+          app-id: ${{ vars.MAINT_APP_ID }}
+          private-key: ${{ secrets.MAINT_APP_PRIVATE_KEY }}
