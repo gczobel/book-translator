@@ -10,9 +10,17 @@ import base64
 import json
 import subprocess
 import time
+import urllib.error
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, Protocol
+
+from ghapi.client import ApiError, HttpApi
 
 APP_ID = 5952762  # the Agent App
+REPO = "gczobel/book-translator"
+# What opening a code PR needs. Never Workflows or administration (ADR 0005, Identities).
+PERMISSIONS = {"contents": "write", "pull_requests": "write"}
 
 
 class TokenError(Exception):
@@ -47,3 +55,31 @@ def make_jwt(key_path: Path, now: int | None = None) -> str:
     payload = _b64(json.dumps(claims, separators=(",", ":")).encode())
     signing_input = f"{header}.{payload}"
     return f"{signing_input}.{_b64(_sign(key_path, signing_input.encode()))}"
+
+
+class _Api(Protocol):
+    def get_json(self, path: str) -> Any: ...
+    def post_json(self, path: str, payload: dict[str, Any]) -> Any: ...
+
+
+def mint_token(
+    key_path: Path,
+    api_factory: Callable[[str], _Api] = HttpApi,
+    now: int | None = None,
+) -> str:
+    """Exchange the App JWT for a one-hour installation token limited to PERMISSIONS."""
+    api = api_factory(make_jwt(key_path, now))
+    try:
+        installation = api.get_json(f"/repos/{REPO}/installation")
+        response = api.post_json(
+            f"/app/installations/{installation['id']}/access_tokens",
+            {"repositories": [REPO.split("/")[1]], "permissions": dict(PERMISSIONS)},
+        )
+        token = response["token"]
+    except urllib.error.HTTPError as error:
+        raise TokenError(f"GitHub refused the request (HTTP {error.code})") from None
+    except (ApiError, OSError, KeyError, TypeError):
+        raise TokenError("GitHub did not return an installation token") from None
+    if not isinstance(token, str) or not token:
+        raise TokenError("GitHub did not return an installation token")
+    return token
