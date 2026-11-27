@@ -161,6 +161,7 @@ def test_an_illegal_split_is_rejected_and_leaves_the_document_unchanged(texts: l
 def test_the_codec_offers_no_way_to_merge_blocks_or_move_text_between_them() -> None:
     public = {n for n in dir(Epub) if not n.startswith("_")}
     assert public == {
+        "add",
         "book",
         "encode_block",
         "locate_block",
@@ -168,6 +169,7 @@ def test_the_codec_offers_no_way_to_merge_blocks_or_move_text_between_them() -> 
         "opf_path",
         "read",
         "rebuild_block",
+        "remove",
         "replace_block",
         "spine",
         "store",
