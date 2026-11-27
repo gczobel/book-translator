@@ -41,6 +41,10 @@ files = ["src", "tests", ".github/scripts"]
 mypy_path = ["src", ".github/scripts"]
 explicit_package_bases = true
 
+[[tool.mypy.overrides]]
+module = ["fontTools.*"]
+ignore_missing_imports = true  # fontTools ships no type information
+
 [tool.ruff]
 line-length = 100
 src = ["src", "tests", ".github/scripts"]
