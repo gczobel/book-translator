@@ -96,6 +96,10 @@ class Crux(BaseModel):
     type: Literal["pun", "lyrics", "quotation", "dialect"]
     location: str
     note: str = ""
+    # For a quoted song, poem or scripture: use a published translation (named in `source`) or
+    # render it ourselves, in which case the rendering is marked as ours.
+    recommendation: Literal["existing translation", "our own"] | None = None
+    source: str = ""
 
 
 class Part2(BaseModel):

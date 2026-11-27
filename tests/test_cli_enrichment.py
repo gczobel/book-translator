@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_cli_bible_part2 import EPUB, Part2Adapter, part2
 
 from book_translator import main
 from book_translator.llm import LLMRequest, RawAnswer
 from book_translator.search import Finding
+from test_cli_bible_part2 import EPUB, Part2Adapter, part2
 
 NAMES = [
     {"term": "London", "kind": "place"},
@@ -97,6 +97,64 @@ def test_famous_real_world_names_get_their_usual_spanish_form_with_a_source(ws: 
     assert glossary["London"]["source"] == "https://example.org/london"
     assert glossary["Queen Victoria"]["rendering"] == "la reina Victoria"
     assert "Canterville" not in glossary  # nothing established, so nothing invented
+
+
+def test_quoted_songs_poems_and_scripture_are_flagged_in_the_crux_list(ws: Path) -> None:
+    adapter = EnrichAdapter({"quotations": QUOTATIONS})
+
+    main(["run", str(ws)], adapter=adapter)
+
+    flags = {c["location"]: c for c in bible(ws)["cruxes"]}
+    song = flags["chapter 2, the nursery rhyme"]
+    assert song["type"] == "lyrics"
+    assert song["recommendation"] == "existing translation"
+    assert song["source"] == "https://example.org/greensleeves-es"
+    assert flags["chapter 1, the epigraph"]["type"] == "quotation"
+    assert flags["chapter 1, the epigraph"]["recommendation"] == "our own"
+    assert flags["chapter 1, the epigraph"]["source"] == ""
+    assert flags["chapter 3, the epitaph"]["type"] == "quotation"
+
+
+def test_our_own_rendering_of_a_quotation_is_marked_as_ours(ws: Path) -> None:
+    own = {"kind": "poem", "location": "chapter 3, the epitaph", "recommendation": "own"}
+
+    main(["run", str(ws)], adapter=EnrichAdapter({"quotations": [own]}))
+
+    (crux,) = [c for c in bible(ws)["cruxes"] if c["location"] == own["location"]]
+    assert crux["recommendation"] == "our own"
+    assert crux["note"].startswith("poem")
+
+
+def test_recommending_an_existing_translation_without_a_source_is_retried(ws: Path) -> None:
+    bad = {"kind": "scripture", "location": "chapter 1", "recommendation": "existing"}
+    answers = [{"quotations": [bad]}, {"quotations": [{**bad, "source": "https://e.org/b"}]}]
+
+    class Retrying(EnrichAdapter):
+        def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+            if request.stage == "enrichment":
+                self.enrichment_requests.append(request)
+                return RawAnswer(json.dumps(answers[min(attempt, 1)]))
+            return super().complete(request, key, attempt)
+
+    adapter = Retrying()
+    main(["run", str(ws)], adapter=adapter)
+
+    assert len(adapter.enrichment_requests) == 2
+    assert bible(ws)["cruxes"][0]["source"] == "https://e.org/b"
+
+
+def test_flags_join_the_cruxes_the_bible_already_predicted(ws: Path) -> None:
+    predicted = {"type": "lyrics", "location": "chapter 2, the nursery rhyme", "note": "rhymes"}
+    adapter = EnrichAdapter({"quotations": QUOTATIONS})
+    adapter._completions = [json.dumps(part2(cruxes=[predicted]))]
+
+    main(["run", str(ws)], adapter=adapter)
+
+    cruxes = bible(ws)["cruxes"]
+    assert len(cruxes) == 3  # the predicted lyrics crux is enriched, not duplicated
+    rhyme = next(c for c in cruxes if c["location"] == predicted["location"])
+    assert rhyme["note"].startswith("rhymes")
+    assert rhyme["recommendation"] == "existing translation"
 
 
 def test_evaluation_mode_looks_nothing_up(tmp_path: Path) -> None:

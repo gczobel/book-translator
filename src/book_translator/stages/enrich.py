@@ -2,11 +2,11 @@
 
 import json
 import sqlite3
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
-from book_translator.bible import Bible, GlossaryEntry
+from book_translator.bible import Bible, Crux, GlossaryEntry
 from book_translator.llm import LLMRequest
 from book_translator.search import Search
 
@@ -22,10 +22,27 @@ class RealName(BaseModel):
     kind: Literal["place", "person", "work"]
 
 
+class Quotation(BaseModel):
+    """A quoted song, poem or passage of scripture, and what to do about its translation."""
+
+    kind: Literal["song", "poem", "scripture"]
+    location: str
+    note: str = ""
+    recommendation: Literal["existing", "own"]
+    source: str = ""  # where the existing translation is found
+
+    @model_validator(mode="after")
+    def _an_existing_translation_names_its_source(self) -> Self:
+        if self.recommendation == "existing" and not self.source:
+            raise ValueError(f"an existing translation of {self.location!r} needs a source")
+        return self
+
+
 class Enrichment(BaseModel):
     """What the model found in the book that the real world already has a name for."""
 
     names: list[RealName] = []
+    quotations: list[Quotation] = []
 
 
 def enrichment_request(model: str, db: sqlite3.Connection, bible: Bible) -> LLMRequest:
@@ -58,6 +75,32 @@ def look_up_names(
                 (name.term, found and found.rendering, found and found.url),
             )
         asked.add(name.term)
+
+
+def with_flagged_quotations(bible: Bible, quotations: list[Quotation]) -> Bible:
+    """The bible with each quotation in its crux list. A crux already predicted at the same
+    place gets the recommendation; otherwise a new crux is added."""
+    cruxes = list(bible.cruxes)
+    for q in quotations:
+        recommendation: Literal["existing translation", "our own"] = (
+            "existing translation" if q.recommendation == "existing" else "our own"
+        )
+        at = next((i for i, c in enumerate(cruxes) if c.location == q.location), None)
+        if at is not None:
+            cruxes[at] = cruxes[at].model_copy(
+                update={"recommendation": recommendation, "source": q.source}
+            )
+            continue
+        cruxes.append(
+            Crux(
+                type="lyrics" if q.kind == "song" else "quotation",
+                location=q.location,
+                note=f"{q.kind}: {q.note}" if q.note else q.kind,
+                recommendation=recommendation,
+                source=q.source,
+            )
+        )
+    return bible.model_copy(update={"cruxes": cruxes})
 
 
 def with_established_names(bible: Bible, db: sqlite3.Connection) -> Bible:

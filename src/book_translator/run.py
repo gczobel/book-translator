@@ -20,6 +20,7 @@ from book_translator.stages.enrich import (
     enrichment_request,
     look_up_names,
     with_established_names,
+    with_flagged_quotations,
 )
 from book_translator.stages.extract import Extraction, extraction_request
 from book_translator.stages.research import book_title, research
@@ -134,9 +135,8 @@ def _enrichment(db: sqlite3.Connection, llm: LLM, search: Search | None) -> None
     evaluation = db.execute("select value from settings where key = 'evaluation'").fetchone()
     if search is not None and evaluation is None:  # ADR 0004: no lookups in evaluation mode
         look_up_names(db, search, found.names, str(target[0]) if target else "es")
+    enriched = with_flagged_quotations(with_established_names(bible, db), found.quotations)
     with db:
         db.execute("delete from bible")
-        db.execute(
-            "insert into bible values (?)", (with_established_names(bible, db).model_dump_json(),)
-        )
+        db.execute("insert into bible values (?)", (enriched.model_dump_json(),))
     _set_status(db, "enrichment", "done")
