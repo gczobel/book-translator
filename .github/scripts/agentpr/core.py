@@ -52,6 +52,12 @@ REQUIRED_CHECKS = required_checks()
 
 
 @dataclass(frozen=True)
+class OwnerReview:
+    state: str  # APPROVED, CHANGES_REQUESTED or DISMISSED
+    commit_id: str  # the commit the review was made on
+
+
+@dataclass(frozen=True)
 class PullFacts:
     number: int
     state: str
@@ -66,8 +72,8 @@ class PullFacts:
     head_ref: str
     head_sha: str
     labels: frozenset[str]
-    # The owner's APPROVED / CHANGES_REQUESTED / DISMISSED reviews, oldest first.
-    owner_review_states: tuple[str, ...]
+    # The owner's APPROVED / CHANGES_REQUESTED / DISMISSED reviews (numeric ID), oldest first.
+    owner_reviews: tuple[OwnerReview, ...]
 
 
 @dataclass(frozen=True)
@@ -99,6 +105,28 @@ def _branch_ok(ref: str) -> bool:
     return _BRANCH.fullmatch(ref) is not None and not any(
         part in _BAD_PARTS for part in ref.split("/")
     )
+
+
+def _malformed_path(path: str) -> bool:
+    """A path the rule can't reason about. This is a permanent block, owner approval or not."""
+    return (
+        not path
+        or path.startswith("/")
+        or "\\" in path
+        or any(part in _BAD_PARTS for part in path.split("/"))
+    )
+
+
+def _owner_approved_head(pr: PullFacts) -> bool:
+    """The owner's latest review is an approval made on the PR's current head commit.
+
+    An approval on an older commit never counts, and any later change request or dismissal of
+    the approval (a dismissed review reads as DISMISSED) withdraws it. No review means no.
+    """
+    if not pr.owner_reviews:
+        return False
+    latest = pr.owner_reviews[-1]
+    return latest.state == "APPROVED" and latest.commit_id == pr.head_sha
 
 
 def _check_reasons(runs: Sequence[CheckRun]) -> list[str]:
@@ -133,9 +161,14 @@ def decide(
         reasons.append("does not target the default branch")
     if is_on_hold(pr.labels):
         reasons.append("on hold")
-    if pr.owner_review_states and pr.owner_review_states[-1] == "CHANGES_REQUESTED":
+    if pr.owner_reviews and pr.owner_reviews[-1].state == "CHANGES_REQUESTED":
         reasons.append("the owner requested changes")
-    if any(is_guarded_path(p) for p in paths):
-        reasons.append("touches a guarded path or a malformed path: needs the owner")
+    # Guarded paths (ADR 0005): in phase 1 an agent PR that touches one merges only after the
+    # owner's APPROVED review on the head commit, which stays required until the owner decides
+    # otherwise. A malformed or unreadable path list is a permanent block: approval can't lift it.
+    if any(_malformed_path(p) for p in paths):
+        reasons.append("a changed path is malformed: cannot be judged")
+    elif any(is_guarded_path(p) for p in paths) and not _owner_approved_head(pr):
+        reasons.append("touches a guarded path: needs the owner's approval on the head commit")
     reasons += _check_reasons(checks)
     return MergeDecision(merge=not reasons, reasons=tuple(reasons))

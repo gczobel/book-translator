@@ -9,6 +9,7 @@ from agentpr.core import (
     ACTIONS_APP_ID,
     REQUIRED_CHECKS,
     CheckRun,
+    OwnerReview,
     PullFacts,
     decide,
 )
@@ -33,9 +34,13 @@ def _pr(**over: object) -> PullFacts:
         head_ref="agent/fix-thing",
         head_sha=SHA,
         labels=frozenset({"bug"}),
-        owner_review_states=(),
+        owner_reviews=(),
     )
     return dataclasses.replace(base, **over)  # type: ignore[arg-type]
+
+
+def _rev(state: str, commit: str = SHA) -> OwnerReview:
+    return OwnerReview(state, commit)
 
 
 def _checks(**over: str) -> list[CheckRun]:
@@ -102,8 +107,8 @@ def test_an_llm_review_that_is_required_must_exist_and_succeed(
         {"labels": frozenset({"hold"})},
         {"labels": frozenset({"Hold"})},
         {"labels": frozenset({"HOLD", "x"})},
-        {"owner_review_states": ("CHANGES_REQUESTED",)},
-        {"owner_review_states": ("APPROVED", "CHANGES_REQUESTED")},
+        {"owner_reviews": (_rev("CHANGES_REQUESTED"),)},
+        {"owner_reviews": (_rev("APPROVED"), _rev("CHANGES_REQUESTED"))},
     ],
 )
 def test_any_failed_condition_blocks(over: dict[str, object]) -> None:
@@ -111,7 +116,7 @@ def test_any_failed_condition_blocks(over: dict[str, object]) -> None:
 
 
 def test_a_later_owner_approval_lifts_an_earlier_change_request() -> None:
-    pr = _pr(owner_review_states=("CHANGES_REQUESTED", "APPROVED"))
+    pr = _pr(owner_reviews=(_rev("CHANGES_REQUESTED"), _rev("APPROVED")))
     assert decide(REPO, pr, FILES, _checks()).merge
 
 
@@ -177,3 +182,39 @@ def test_reasons_never_echo_pr_text() -> None:
     decision = decide(REPO, _pr(head_ref="agent/\nSECRET"), FILES, _checks())
     assert not decision.merge
     assert all("\n" not in r and "SECRET" not in r for r in decision.reasons)
+
+
+GUARDED = [*FILES, ".github/workflows/ci.yml"]
+OLD = "2" * 40
+
+
+def test_a_guarded_path_merges_after_the_owners_approval_on_the_head() -> None:
+    pr = _pr(owner_reviews=(_rev("APPROVED"),))
+    assert decide(REPO, pr, GUARDED, _checks()).merge
+
+
+@pytest.mark.parametrize(
+    "reviews",
+    [
+        (),  # no review
+        (_rev("APPROVED", OLD),),  # approval on an older commit never counts
+        (_rev("APPROVED"), _rev("CHANGES_REQUESTED")),
+        (_rev("DISMISSED"),),  # a dismissed approval
+        (_rev("APPROVED"), _rev("DISMISSED")),
+        (_rev("APPROVED", OLD), _rev("DISMISSED", SHA)),
+    ],
+)
+def test_a_guarded_path_without_a_live_approval_on_the_head_blocks(
+    reviews: tuple[OwnerReview, ...],
+) -> None:
+    assert not decide(REPO, _pr(owner_reviews=reviews), GUARDED, _checks()).merge
+
+
+def test_an_approval_on_the_head_is_not_needed_when_no_guarded_path_changes() -> None:
+    assert decide(REPO, _pr(owner_reviews=()), FILES, _checks()).merge
+
+
+@pytest.mark.parametrize("path", ["/abs", "a/../b", "", "a\\b", "a//b", "./x"])
+def test_a_malformed_path_blocks_even_with_the_owners_approval(path: str) -> None:
+    pr = _pr(owner_reviews=(_rev("APPROVED"),))
+    assert not decide(REPO, pr, [*FILES, path], _checks()).merge

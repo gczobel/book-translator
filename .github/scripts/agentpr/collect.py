@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
-from agentpr.core import CheckRun, PullFacts
+from agentpr.core import CheckRun, OwnerReview, PullFacts
 from ghapi.identities import OWNER_ID
 from ghapi.repo import split_repo
 from guard.collect import GITHUB_FILE_LIST_LIMIT
@@ -94,7 +94,7 @@ def pull_facts(api: Api, repo: str, number: int, owner_id: int = OWNER_ID) -> tu
             continue
         state = _str(r.get("state"), "review state")
         if _int(reviewer.get("id"), "reviewer id") == owner_id and state in _OWNER_REVIEW_STATES:
-            states.append(state)
+            states.append(OwnerReview(state, _sha(r.get("commit_id"), "review commit")))
 
     facts = PullFacts(
         number=_int(raw.get("number"), "pull request number"),
@@ -110,7 +110,7 @@ def pull_facts(api: Api, repo: str, number: int, owner_id: int = OWNER_ID) -> tu
         head_ref=_str(head.get("ref"), "head ref"),
         head_sha=_sha(head.get("sha"), "head sha"),
         labels=names,
-        owner_review_states=tuple(states),
+        owner_reviews=tuple(states),
     )
     return facts, _int(raw.get("changed_files"), "changed_files")
 

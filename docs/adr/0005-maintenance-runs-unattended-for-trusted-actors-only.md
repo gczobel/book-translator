@@ -110,6 +110,10 @@ code from something that may have been tricked.
   - **From the first release on**, each waits for the owner's approval. The switch happens with the
     first `v*` tag.
   - **At any phase**, guarded paths need the owner's approval on the head commit.
+    - Decided in #25: an agent PR that touches a guarded path merges after the owner's APPROVED review
+      on its current head commit (numeric ID; an approval on an older commit never counts, and a later
+      change request or dismissal withdraws it). A malformed or unreadable path list stays a permanent
+      block.
   - Agents act only on issues the owner wrote, and other people's comments are filtered out.
 - **Guarded paths**:
   - `.github/**`, `**/.claude/**`, `**/REVIEW.md`, `AGENTS.md`, `CLAUDE.md`, `docs/agents/**`,

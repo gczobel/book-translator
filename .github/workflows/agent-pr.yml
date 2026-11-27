@@ -8,8 +8,8 @@ name: agent-pr
 #
 # This is NOT the Dependabot/release sweep: it never arms auto-merge and never touches those
 # PRs. The rule lives in .github/scripts/agentpr/core.py (tested). It requires: author is the
-# Agent App's bot ID, head repo is this repo, branch under agent/, no guarded path touched, every
-# required check (guard included) last succeeded from GitHub Actions, no `hold`
+# Agent App's bot ID, head repo is this repo, branch under agent/, any guarded path covered by
+# the owner's approval on the head commit, every required check (guard included) last succeeded from GitHub Actions, no `hold`
 # label, no owner change request. The pause switch gates every job.
 #
 # `workflow_run` runs this file and its scripts from the default branch, and nothing from a PR

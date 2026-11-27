@@ -209,9 +209,49 @@ def test_only_the_owners_reviews_count(tmp_path: Path) -> None:
     ]
     code, out = _run(tmp_path, FakeApi(_routes(**{f"/repos/{REPO}/pulls/7/reviews": reviews})))
     assert (code, out.splitlines()[0]) == (0, "merge=true")
-    blocked = [{"user": {"id": OWNER_ID}, "state": "CHANGES_REQUESTED"}]
+    blocked = [{"user": {"id": OWNER_ID}, "state": "CHANGES_REQUESTED", "commit_id": SHA}]
     code, out = _run(tmp_path, FakeApi(_routes(**{f"/repos/{REPO}/pulls/7/reviews": blocked})))
     assert (code, out.strip()) == (0, "merge=false")
+
+
+def _guarded_routes(reviews: list[dict[str, Any]]) -> dict[str, Any]:
+    return _routes(
+        **{
+            f"/repos/{REPO}/pulls/7/files": [{"filename": "AGENTS.md"}],
+            f"/repos/{REPO}/pulls/7/reviews": reviews,
+        }
+    )
+
+
+def _approval(
+    reviewer: int = OWNER_ID, commit: str = SHA, state: str = "APPROVED"
+) -> dict[str, Any]:
+    return {"user": {"id": reviewer}, "state": state, "commit_id": commit}
+
+
+@pytest.mark.parametrize(
+    ("reviews", "merges"),
+    [
+        ([_approval()], True),  # approval on the head
+        ([_approval(commit="2" * 40)], False),  # approval on an old commit
+        ([_approval(reviewer=OWNER_ID + 1)], False),  # a look-alike ID, not the owner
+        ([_approval(state="DISMISSED")], False),  # dismissed approval
+        ([], False),  # no review
+    ],
+)
+def test_guarded_paths_merge_only_on_the_owners_approval_of_the_head(
+    tmp_path: Path, reviews: list[dict[str, Any]], merges: bool
+) -> None:
+    code, out = _run(tmp_path, FakeApi(_guarded_routes(reviews)))
+    assert code == 0
+    assert out.startswith("merge=true") is merges
+
+
+def test_an_owner_review_without_a_readable_commit_fails_closed(tmp_path: Path) -> None:
+    for bad in (None, "abc", 7):
+        review = {"user": {"id": OWNER_ID}, "state": "APPROVED", "commit_id": bad}
+        code, out = _run(tmp_path, FakeApi(_guarded_routes([review])))
+        assert code == 2 and "merge=true" not in out
 
 
 def test_a_malformed_environment_fails_closed(tmp_path: Path) -> None:
