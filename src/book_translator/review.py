@@ -12,6 +12,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
+from book_translator.review_html import write_html
+
 
 class ReviewError(Exception):
     pass
@@ -41,6 +43,7 @@ def write_review(db: sqlite3.Connection, path: Path, gate: str, cards: list[Card
         )
     document = {"gate": gate, "cards": [c.model_dump() for c in cards]}
     path.write_text(yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=100))
+    write_html(path)
 
 
 def read_choices(db: sqlite3.Connection, path: Path, gate: str) -> dict[str, str]:
