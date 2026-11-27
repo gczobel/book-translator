@@ -137,6 +137,14 @@ INLINE_1 = page(
 ).replace('xml:lang="en">', 'xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en">', 1)
 INLINE_2 = page("<h1>Two</h1>\n<p>B1.</p>\n")
 
+# A chapter whose first paragraph can grow: classes, an id and inline markup on the middle one.
+DIALOGUE_1 = page(
+    "<h1>One</h1>\n"
+    '<p class="first">"Go," she said. "Now," he said.</p>\n'
+    '<p class="body" id="mid">He saw <i>her</i> leave.</p>\n'
+    '<p class="last">The end.</p>\n'
+)
+
 # Scene breaks drawn as <hr> elements of different classes (and none).
 HR_1 = page(
     '<h1>One</h1>\n<p>A1.</p>\n<p>A2.</p>\n<hr class="ornament"/>\n<p>B1.</p>\n'
@@ -324,6 +332,7 @@ def main() -> None:
     write("plain.epub", {"ch1.xhtml": PLAIN_1, "ch2.xhtml": PLAIN_2})
     write("odd-markup.epub", {"ch1.xhtml": ODD_1, "ch2.xhtml": PLAIN_2})
     write("inline-markup.epub", {"ch1.xhtml": INLINE_1, "ch2.xhtml": INLINE_2})
+    write("dialogue.epub", {"ch1.xhtml": DIALOGUE_1, "ch2.xhtml": PLAIN_2})
     write("hr-breaks.epub", {"ch1.xhtml": HR_1, "ch2.xhtml": HR_2})
     write("asterism-breaks.epub", {"ch1.xhtml": ASTERISM_1, "ch2.xhtml": ASTERISM_2})
     write("split-chapter.epub", {"ch1.xhtml": SPLIT_1, "ch2.xhtml": SPLIT_2}, ncx=SPLIT_NCX)

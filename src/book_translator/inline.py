@@ -10,6 +10,7 @@ into the DOM from the map.
 
 import copy
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -36,6 +37,17 @@ class EncodedBlock:
 
     text: str
     _codes: dict[int, _Code]
+
+    def validate_pieces(self, pieces: Sequence[str]) -> None:
+        """Like `validate`, for a block split into several target blocks.
+
+        The pieces together must carry every code once, and no pair may straddle two pieces.
+        """
+        if not pieces:
+            raise InlineCodeError("a block needs at least one target block")
+        for piece in pieces:
+            _check_balanced(piece)
+        self.validate("".join(pieces))
 
     def validate(self, text: str) -> None:
         """Raise InlineCodeError, saying why, unless `text` carries this block's codes legally.
@@ -76,6 +88,19 @@ class EncodedBlock:
             raise InlineCodeError(f"pair {open_pairs[-1]} is not closed")
         if missing := sorted(set(self._codes) - seen):
             raise InlineCodeError(f"missing codes: {', '.join(map(str, missing))}")
+
+
+def _check_balanced(piece: str) -> None:
+    depth = 0
+    for match in _TOKEN.finditer(piece):
+        if match.group(1) is not None:
+            depth += 1
+        elif match.group(0) == "</pc>":
+            depth -= 1
+            if depth < 0:
+                break
+    if depth != 0:
+        raise InlineCodeError("a pair of codes must open and close inside the same target block")
 
 
 def encode(element: etree._Element) -> EncodedBlock:
