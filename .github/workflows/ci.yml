@@ -15,6 +15,10 @@ env:
 # unless every upstream job succeeded, so a skipped, cancelled or neutral
 # result can never pass. Required checks (see the ruleset): lint, typecheck,
 # test, e2e, epubcheck.
+#
+# The aggregator script is repeated on purpose. Calling a shared action or
+# workflow would need a checkout, so a PR could change the gate it is judged by.
+# Do not factor it out.
 jobs:
   run-lint:
     runs-on: ubuntu-latest
