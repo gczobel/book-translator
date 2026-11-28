@@ -1,0 +1,43 @@
+#!/bin/sh
+# Install the pinned epubcheck (see scripts/epubcheck.pin) and a wrapper that `export` finds on PATH.
+#
+#   scripts/install-epubcheck [PREFIX]      PREFIX defaults to ~/.local
+#
+# Writes PREFIX/share/epubcheck/<version>/ (the release) and PREFIX/bin/epubcheck (the wrapper).
+# Needs curl, unzip, sha256sum and java at run time. Nothing is installed unless the checksum matches.
+set -eu
+
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=epubcheck.pin
+. "$here/epubcheck.pin"
+
+prefix=${1:-$HOME/.local}
+dest=$prefix/share/epubcheck/$EPUBCHECK_VERSION
+url=https://github.com/w3c/epubcheck/releases/download/v$EPUBCHECK_VERSION/epubcheck-$EPUBCHECK_VERSION.zip
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+curl --fail --silent --show-error --location --output "$work/epubcheck.zip" "$url"
+echo "$EPUBCHECK_SHA256  $work/epubcheck.zip" | sha256sum --check --status || {
+    echo "error: checksum mismatch for $url; nothing installed" >&2
+    exit 1
+}
+
+unzip -q "$work/epubcheck.zip" -d "$work/unpacked"
+rm -rf "$dest"
+mkdir -p "$dest" "$prefix/bin"
+cp -R "$work/unpacked/epubcheck-$EPUBCHECK_VERSION/." "$dest/"
+
+cat > "$prefix/bin/epubcheck" <<WRAPPER
+#!/bin/sh
+exec java -jar "$dest/epubcheck.jar" "\$@"
+WRAPPER
+chmod +x "$prefix/bin/epubcheck"
+
+echo "epubcheck $EPUBCHECK_VERSION installed: $prefix/bin/epubcheck"
+command -v java >/dev/null 2>&1 || echo "warning: java is not on PATH; epubcheck needs it" >&2
+case ":$PATH:" in
+    *":$prefix/bin:"*) ;;
+    *) echo "note: add $prefix/bin to PATH, or set EPUBCHECK=$dest/epubcheck.jar" ;;
+esac

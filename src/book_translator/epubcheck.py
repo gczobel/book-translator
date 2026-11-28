@@ -10,8 +10,9 @@ from typing import Protocol
 
 ENV_VAR = "EPUBCHECK"
 INSTALL_HINT = (
-    "epubcheck was not found. Install it (https://www.w3.org/publishing/epubcheck/) and put "
-    f"`epubcheck` on PATH, or set {ENV_VAR} to its command or to the epubcheck .jar file."
+    "epubcheck was not found. Install the pinned version with `scripts/install-epubcheck` "
+    "(from the repository root; it needs curl, unzip and java and installs under ~/.local), "
+    f"or put your own `epubcheck` on PATH, or set {ENV_VAR} to its command or its .jar file."
 )
 
 
