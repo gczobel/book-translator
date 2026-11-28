@@ -86,6 +86,11 @@ def _parser() -> argparse.ArgumentParser:
     status_cmd.add_argument("workspace", type=Path)
     approve_cmd = sub.add_parser("approve", help="approve the waiting review gate")
     approve_cmd.add_argument("workspace", type=Path)
+    approve_cmd.add_argument(
+        "--choices",
+        type=Path,
+        help="JSON file {card id: choice}; open cards also accept free text",
+    )
     waive_cmd = sub.add_parser(
         "waive", help="accept QA findings you have looked at, so they stop blocking the build"
     )
@@ -154,7 +159,7 @@ def main(
             sys.exit(_refused_message(exc, args.workspace))
         print_report(args.workspace)
     elif args.command == "approve":
-        _approve(args.workspace)
+        _approve(args.workspace, args.choices)
     elif args.command == "waive":
         _waive(args)
     elif args.command == "unwaive":
@@ -361,11 +366,11 @@ def _print_structure(book: Book) -> None:
             print(f"{label}: " + ", ".join(p.kind for p in parts))
 
 
-def _approve(path: Path) -> None:
+def _approve(path: Path, choices: Path | None = None) -> None:
     if not (path / workspace.DB_NAME).is_file():
         sys.exit(f"error: not a workspace: {path}")
     try:
-        approve_waiting_gate(path)
+        approve_waiting_gate(path, choices)
     except (GateError, ReviewError) as exc:
         sys.exit(f"error: {exc}")
     print(f"Approved. Next: book-translator run {path}")
