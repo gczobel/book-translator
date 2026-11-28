@@ -179,6 +179,36 @@ def test_a_reworded_ask_that_is_still_refused_goes_to_the_fallback_model(tmp_pat
     ]
 
 
+def test_an_invalid_answer_does_not_use_up_the_attempts_for_the_fallback_model(
+    tmp_path: Path,
+) -> None:
+    """Issue 168: one invalid answer, then two refusals, ended the loop before the fallback ran."""
+
+    class InvalidThenRefusing:
+        def __init__(self) -> None:
+            self.seen: list[LLMRequest] = []
+
+        def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+            self.seen.append(request)
+            if len(self.seen) == 1:
+                return RawAnswer("not json", 10, 5)
+            if request.model == SONNET:
+                raise ModelRefusedError("blocked", category="reasoning_extraction")
+            return RawAnswer('{"text": "hello"}', 10, 5)
+
+    adapter = InvalidThenRefusing()
+
+    result = LLM(adapter, tmp_path / "book.sqlite").call(make_request(), Greeting)
+
+    assert result.output == Greeting(text="hello")
+    assert [(r.model, r.reworded) for r in adapter.seen] == [
+        (SONNET, False),
+        (SONNET, False),
+        (SONNET, True),
+        (OPUS, True),
+    ]
+
+
 def test_another_category_goes_straight_to_the_fallback_model(tmp_path: Path) -> None:
     adapter = Refusing(lambda r, n: r.model == SONNET, "general_harms")
 

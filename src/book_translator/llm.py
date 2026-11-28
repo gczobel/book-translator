@@ -229,7 +229,9 @@ class LLM:
         asked = replace(request, output_schema=json.dumps(schema.model_json_schema()))
         trail: list[str] = []
         switched = False
-        for attempt in range(self._max_attempts):
+        calls = answers = 0  # a refusal changes the ask or model; it does not use up an answer try
+        while answers < self._max_attempts:
+            attempt, calls = calls, calls + 1
             if error is not None:
                 asked = replace(asked, feedback=str(error))
             if self._budget is not None:
@@ -250,6 +252,7 @@ class LLM:
                     break  # nothing left to change; sending it again would be refused again
                 continue
             refused = None
+            answers += 1
             if self._budget is not None:
                 self._budget.record(
                     request.stage, cost_of(asked.model, raw.input_tokens, raw.output_tokens)
