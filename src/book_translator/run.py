@@ -14,6 +14,7 @@ from book_translator import (
 from book_translator.bible import Bible
 from book_translator.budget import Budget
 from book_translator.config import STAGE_MODELS
+from book_translator.dialogue import relayout
 from book_translator.epub import open_epub
 from book_translator.gates import (
     ANALYSIS,
@@ -298,7 +299,9 @@ def _typography(db: sqlite3.Connection, workspace: Path, progress: Progress) -> 
     with db:
         typography.create_tables(db)
     bible = Bible.model_validate_json(db.execute("select result from bible").fetchone()[0])
-    typography.apply(db, open_epub(workspace / SOURCE_NAME), bible)
+    source = open_epub(workspace / SOURCE_NAME)
+    relayout(db, source, bible.style)
+    typography.apply(db, source, bible)
     _set_status(db, typography.STAGE, "done")
     progress.end(typography.STAGE)
 
