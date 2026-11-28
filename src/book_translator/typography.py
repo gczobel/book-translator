@@ -55,6 +55,7 @@ def _requote(text: str) -> tuple[str, int] | None:
     quote closes what was never opened."""
     out: list[str] = []
     depth = 0
+    single: list[bool] = []  # per open quote: opened as a single quote, so ’ may close it
     for index, char in enumerate(text):
         if char not in _QUOTE_CHARS:
             out.append(char)
@@ -64,15 +65,20 @@ def _requote(text: str) -> tuple[str, int] | None:
         if char in "'’" and before.isalnum() and after.isalnum():
             out.append("’")  # an apostrophe
             continue
+        if char in "'’" and before.isalpha() and not (single and single[-1]):
+            out.append("’")  # an elision at the end of a word (na’, to’), no single quote open
+            continue
         if char in "\"'" and before.isdigit():
             out.append(char)  # Q2: a measure (52° 2' 20")
             continue
         if char == "»" and index == 0:
             out.append(char)  # Q6: a continuation paragraph opens with a closing guillemet
             depth = 1
+            single = [False]
             continue
         if char in "«“‘" or (char in "\"'" and (not before or before in _OPENERS)):
             depth += 1
+            single.append(char in "'‘")
             out.append(_LEVELS[min(depth, 3) - 1][0])
             continue
         if depth == 0:
@@ -82,6 +88,7 @@ def _requote(text: str) -> tuple[str, int] | None:
             tail = out.pop() + tail
         out.append(_LEVELS[min(depth, 3) - 1][1] + tail)
         depth -= 1
+        single.pop()
     return "".join(out), depth
 
 
@@ -114,7 +121,8 @@ RAYA = "\u2014"
 _DASHES = "\u2013\u2015\u2014-"
 _SPEECH_DASH = re.compile(rf"^\s*[{_DASHES}]+\s*(?=[^\s\d{_DASHES}])")
 _DASH_AS_RAYA = re.compile(
-    r"\s+[-\u2013\u2015]+\s+|--+|\u2015|(?<!\d)\u2013|\u2013(?!\d)"  # spaced hyphen, --, ―, –
+    # spaced hyphen, --, ―, –; a hyphen or en dash before a number is a label ("Saga - 05")
+    r"\s+[-\u2013\u2015]+(?!\s*\d)\s+|--+|\u2015|(?<!\d)\u2013(?!\s*\d)|\u2013(?!\s*\d)"
 )
 _NEXT_WORD = re.compile(r"[^\W_]|[\u00bf\u00a1\u00ab\u201c\u2018(\ue000\ue002]")
 _LOWER = "a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1\u00fc"
@@ -171,6 +179,9 @@ def inverted_marks(text: str) -> str:
         end = match.start()
         start = max(m.end() for m in _SEGMENT_START.finditer(text, 0, end))
         segment = text[start:end]
+        opener = _OPENER[match.group()]
+        if text[:start].count(opener) > text[:start].count(match.group()):
+            continue  # its opener is already there, before an ellipsis or full stop inside it
         first = segment.split(" ", 1)[0].lower() if segment else ""
         if (
             not segment
@@ -180,7 +191,7 @@ def inverted_marks(text: str) -> str:
             or text[end + 1 : end + 2] in ("?", "!")
         ):
             continue
-        text = text[:start] + _OPENER[match.group()] + text[start:]
+        text = text[:start] + opener + text[start:]
     return text
 
 

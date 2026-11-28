@@ -222,3 +222,42 @@ def test_straight_quotes_continuing_in_the_next_paragraph_are_set_so_qa_can_pass
 
     assert target_text(ws, BLOCK) == "Dijo: «Algo largo que sigue en el párrafo siguiente."
     assert (BLOCK, "quotes") not in findings(ws)
+
+
+def test_a_question_continuing_after_an_ellipsis_keeps_its_one_opener(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+    cases = [
+        "¿Eso es… maquillaje?",
+        "¿Es una… modificación corporal o una construcción genética?",
+    ]
+    for text in cases:
+        assert normalised(ws, text, adapter, capsys) == text
+        assert (BLOCK, "inverted_marks") not in findings(ws)
+
+
+def test_apostrophes_in_slurred_speech_are_not_reported_as_unpaired_quotes(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+    cases = [
+        "—No hay na’ de damas por aquí, dijo.",
+        "—P’a un asesino es muy poco —dijo.",
+        "—Estaba to’… cansado, ¿sabes?",
+        "—Vamos pa’l pueblo ahora mismo.",
+        "Se lo dio to’ y se fue pa’ casa.",
+        "Se lo dio to' y se fue pa' casa.",
+    ]
+    for text in cases:
+        normalised(ws, text, adapter, capsys)
+        assert (BLOCK, "quotes") not in findings(ws), text
+
+
+def test_a_hyphen_between_a_word_and_a_number_is_not_a_raya_finding(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+    for text in ("Universo Vorkosigan - 05", "Universo Vorkosigan – 05", "Universo Vorkosigan-05"):
+        normalised(ws, text, adapter, capsys)
+        assert (BLOCK, "raya") not in findings(ws), text
