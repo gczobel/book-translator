@@ -138,6 +138,38 @@ def test_a_banned_variant_is_a_finding_only_where_the_source_uses_the_term() -> 
     assert len(banned_variants(there)) == 1
 
 
+PHANTASMATA = [
+    GlossaryEntry(
+        term="phantasmata",
+        rendering="phantasmata (cursiva)",
+        banned_variants=["fantasmas"],
+        origin="extracted",
+    )
+]
+
+
+def test_a_banned_word_for_another_source_word_is_not_a_finding_if_the_rendering_is_there() -> None:
+    both = context(
+        "He denied the existence of ghosts. The phantasmata were real.",
+        "Negó la existencia de los fantasmas. Los *phantasmata* eran reales.",
+        glossary=PHANTASMATA,
+    )
+
+    assert banned_variants(both) == []
+
+
+def test_a_banned_word_is_still_a_finding_if_the_rendering_is_used_too_few_times() -> None:
+    once_of_twice = context(
+        "The phantasmata came. The phantasmata left.",
+        "Los *phantasmata* vinieron. Los fantasmas se fueron.",
+        glossary=PHANTASMATA,
+    )
+    never = context("The phantasmata.", "Los fantasmas.", glossary=PHANTASMATA)
+
+    assert len(banned_variants(once_of_twice)) == 1
+    assert len(banned_variants(never)) == 1
+
+
 def test_numbers_written_in_words_are_read_as_numbers() -> None:
     assert spoken_numbers("cincuenta mil dólares") == {50000}
     assert spoken_numbers("treinta y tres años y veintiún días") == {33, 21}
