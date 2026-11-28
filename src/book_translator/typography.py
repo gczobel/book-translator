@@ -121,7 +121,8 @@ RAYA = "\u2014"
 _DASHES = "\u2013\u2015\u2014-"
 _SPEECH_DASH = re.compile(rf"^\s*[{_DASHES}]+\s*(?=[^\s\d{_DASHES}])")
 _DASH_AS_RAYA = re.compile(
-    r"\s+[-\u2013\u2015]+\s+|--+|\u2015|(?<!\d)\u2013|\u2013(?!\d)"  # spaced hyphen, --, ―, –
+    # spaced hyphen, --, ―, –; a hyphen or en dash before a number is a label ("Saga - 05")
+    r"\s+[-\u2013\u2015]+(?!\s*\d)\s+|--+|\u2015|(?<!\d)\u2013(?!\s*\d)|\u2013(?!\s*\d)"
 )
 _NEXT_WORD = re.compile(r"[^\W_]|[\u00bf\u00a1\u00ab\u201c\u2018(\ue000\ue002]")
 _LOWER = "a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1\u00fc"

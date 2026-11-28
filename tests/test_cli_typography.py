@@ -252,3 +252,12 @@ def test_apostrophes_in_slurred_speech_are_not_reported_as_unpaired_quotes(
     for text in cases:
         normalised(ws, text, adapter, capsys)
         assert (BLOCK, "quotes") not in findings(ws), text
+
+
+def test_a_hyphen_between_a_word_and_a_number_is_not_a_raya_finding(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+    for text in ("Universo Vorkosigan - 05", "Universo Vorkosigan – 05", "Universo Vorkosigan-05"):
+        normalised(ws, text, adapter, capsys)
+        assert (BLOCK, "raya") not in findings(ws), text
