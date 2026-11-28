@@ -54,6 +54,12 @@ def export(workspace: Path, validator: Validator | None = None) -> Path:
         remove_branding(source, EPUBLIBRE)
     finally:
         db.close()
+    from lxml import etree  # THROWAWAY: corrupt the export on purpose
+
+    member = source.spine()[0]
+    broken = etree.ElementTree(fromstring(source.read(member)))
+    etree.SubElement(broken.getroot(), "bogus")
+    source.store(member, broken)
     out = workspace / f"{workspace.resolve().name}.{target}.epub"
     source.write(out)
     result = checker.validate(out)
