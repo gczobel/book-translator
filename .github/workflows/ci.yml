@@ -109,12 +109,21 @@ jobs:
           [[ -n "$RESULTS" ]] || exit 1
           for r in $RESULTS; do [[ "$r" == success ]] || exit 1; done
 
-  # Placeholder: filled in place when the translator's end-to-end tests land.
   run-e2e:
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      contents: read
     steps:
-      - run: echo "e2e placeholder; real end-to-end tests land with the translator"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # uv is pinned by version and checksum so the runtime download can't bypass pinning.
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.11.21"
+          checksum: "8c88519b0ef0af9801fcdee419bbb12116bd9e6b18e162ae093c932d8b264050"
+      - run: uv sync --locked
+      - run: uv run pytest -m e2e
 
   e2e:
     name: e2e
@@ -131,12 +140,26 @@ jobs:
           [[ -n "$RESULTS" ]] || exit 1
           for r in $RESULTS; do [[ "$r" == success ]] || exit 1; done
 
-  # Placeholder: filled in place when the translator produces EPUBs to validate.
   run-epubcheck:
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      contents: read
     steps:
-      - run: echo "epubcheck placeholder; EPUB validation lands with the translator"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # uv is pinned by version and checksum so the runtime download can't bypass pinning.
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.11.21"
+          checksum: "8c88519b0ef0af9801fcdee419bbb12116bd9e6b18e162ae093c932d8b264050"
+      - run: uv sync --locked
+      - name: Install epubcheck (pinned by version and checksum in the script)
+        run: |
+          . scripts/epubcheck.pin
+          scripts/install-epubcheck "$RUNNER_TEMP/ec"
+          echo "EPUBCHECK=$RUNNER_TEMP/ec/share/epubcheck/$EPUBCHECK_VERSION/epubcheck.jar" >> "$GITHUB_ENV"
+      - run: java -version && uv run pytest -m epubcheck
 
   epubcheck:
     name: epubcheck
