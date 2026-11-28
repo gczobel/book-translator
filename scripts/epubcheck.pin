@@ -1,0 +1,5 @@
+# The one place the epubcheck version and checksum are pinned. scripts/install-epubcheck reads it,
+# and CI can too (`. scripts/epubcheck.pin`). sha256 is of epubcheck-<version>.zip from the
+# w3c/epubcheck GitHub release. Change both together.
+EPUBCHECK_VERSION=5.4.0
+EPUBCHECK_SHA256=33350c61038e71dfb3d45a76aed04bf5481e6d5500cb780f6e98db8bbd15a28c

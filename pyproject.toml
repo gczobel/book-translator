@@ -6,7 +6,17 @@ authors = [
     { name = "Gustavo", email = "754466+gczobel@users.noreply.github.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "fonttools>=4.68.0",
+    "lxml>=6.1.3",
+    "pydantic>=2.14.4",
+    "pydantic-ai-slim[anthropic]>=2.71.0",
+    "pyyaml>=6.0.4",
+]
+
+[project.optional-dependencies]
+# `evaluate` embeds with LaBSE; the model package is heavy (torch), so it is not a hard dependency.
+evaluate = ["sentence-transformers>=5.0"]
 
 [project.scripts]
 book-translator = "book_translator:main"
@@ -17,6 +27,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "lxml-stubs>=0.5.1",
     "mypy>=2.4.1",
     "pytest>=9.2.0",
     "pyyaml>=6.0.4",
@@ -28,12 +39,24 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".github/scripts"]
+markers = [
+    "e2e: end-to-end CLI tests on a fixture EPUB (the e2e required check)",
+    "epubcheck: runs the real epubcheck from $EPUBCHECK (skipped when it is unset)",
+]
 
 [tool.mypy]
 strict = true
 files = ["src", "tests", ".github/scripts"]
-mypy_path = ["src", ".github/scripts"]
+mypy_path = ["src", "tests", ".github/scripts"]
 explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["fontTools.*"]
+ignore_missing_imports = true  # fontTools ships no type information
+
+[[tool.mypy.overrides]]
+module = ["sentence_transformers.*"]
+ignore_missing_imports = true  # optional dependency, not installed in the dev environment
 
 [tool.ruff]
 line-length = 100

@@ -8,6 +8,8 @@ dist/
 .env
 # books and working data are never committed
 *.epub
+# ...except the tiny synthetic test fixtures
+!tests/fixtures/epub/*.epub
 *.mobi
 *.azw3
 .work/

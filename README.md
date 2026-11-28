@@ -42,6 +42,31 @@ The tag's commit hash is the first line of the first command (for an annotated t
 `361970745` and a head branch starting `release-please--branches--`. If a `release-tag-unverified`
 issue is open, do not install that tag.
 
+## Installing epubcheck
+
+`book-translator export` validates the result with [epubcheck](https://www.w3.org/publishing/epubcheck/),
+which needs Java. From a checkout of this repository, install the pinned release:
+
+```
+scripts/install-epubcheck            # installs under ~/.local; pass a PREFIX to choose another
+```
+
+It downloads the version in `scripts/epubcheck.pin`, refuses to install unless the sha256 matches,
+unpacks it to `PREFIX/share/epubcheck/<version>/` and writes the wrapper `PREFIX/bin/epubcheck`,
+which `export` finds on `PATH`. To use a different install, set `EPUBCHECK` to a command or to the
+`epubcheck.jar` path. To change the pinned version, edit `scripts/epubcheck.pin` (version and
+checksum together); CI can read the same file with `. scripts/epubcheck.pin`.
+
+## Scoring with COMET (local only)
+
+`book-translator evaluate WORKSPACE --reference REF.epub --comet` adds a COMET score per chapter
+and overall to the quality report. COMET needs older ML libraries than the `evaluate` extra, so it
+runs in its own throwaway environment that `uv` builds on the first use (Python 3.12, a pinned
+`unbabel-comet`, and a model of about 2 GB, about 6 GB of memory while it runs). Nothing else is
+needed. It never runs in CI, and the pin (`COMET_VERSION` in
+`src/book_translator/evaluate/comet.py`) is bumped by hand. Read the score as a way to compare
+chapters or versions, not to judge one sentence.
+
 ## Dev
 
 ```
@@ -49,3 +74,6 @@ uv sync
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 ```
+
+The `epubcheck` test (`pytest -m epubcheck`) exports the e2e fixture and validates it with the real
+epubcheck; it is skipped unless `EPUBCHECK` points at the `.jar` (see "Installing epubcheck").

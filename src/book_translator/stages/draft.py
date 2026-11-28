@@ -1,0 +1,206 @@
+"""S3: translate each scene passage by passage, never leaving a gap, recording TKs.
+
+A passage is a run of consecutive blocks inside one scene, short enough for one request. The
+model sees the passage with the blocks around it as read-only context, the part of the bible
+that concerns it and how earlier chapters rendered the same terms. Each source block gets one or
+more target blocks, stored against its id (ADR 0001); the codec rebuild happens at build time.
+"""
+
+import json
+import sqlite3
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from typing import Any
+
+from pydantic import BaseModel, Field, model_validator
+
+from book_translator import tk
+from book_translator.bible import Bible
+from book_translator.dialogue import lay_out_legally
+from book_translator.epub import Epub
+from book_translator.inline import EncodedBlock, InlineCodeError
+from book_translator.llm import LLM, LLMRequest
+from book_translator.progress import Tick, no_tick
+from book_translator.stages.context import SourceBlock, bible_slice, concordance
+from book_translator.tk import DraftedTK
+from book_translator.tolerance import in_order
+
+PROMPT_VERSION = "draft-v3"
+MAX_PASSAGE_WORDS = 400
+CONTEXT_BLOCKS = 3
+_PROMPT = (
+    "Translate the passage block by block. Give every block of the passage one or more target "
+    "blocks, keep inline codes, use the bible and the concordance, and where unsure give a "
+    "provisional rendering plus a TK. Write speech inside « »; its layout is applied afterwards. "
+    "The context blocks are read-only. For each TK, give 2 or 3 candidates and set "
+    "`recommendation` to the number (1, 2 or 3) of the candidate you recommend."
+)
+
+
+class DraftedBlock(BaseModel):
+    source: str  # id of the source block
+    targets: list[str] = Field(min_length=1)
+
+
+class Draft(BaseModel):
+    blocks: list[DraftedBlock]
+    tks: list[DraftedTK] = []
+
+
+@dataclass(frozen=True)
+class Passage:
+    chapter: int  # 0-based
+    ids: list[str]
+    before: list[str]  # ids of the blocks read before it in the same scene
+    after: list[str]
+
+
+def passages(source: Epub) -> list[Passage]:
+    out: list[Passage] = []
+    for chapter, ch in enumerate(source.book().chapters):
+        for scene in ch.scenes:
+            ids = [b.id for b in scene.blocks]
+            start = 0
+            while start < len(ids):
+                end, words = start, 0
+                while end < len(ids) and (end == start or words < MAX_PASSAGE_WORDS):
+                    words += len(scene.blocks[end].text.split())
+                    end += 1
+                out.append(
+                    Passage(
+                        chapter,
+                        ids[start:end],
+                        ids[max(0, start - CONTEXT_BLOCKS) : start],
+                        ids[end : end + CONTEXT_BLOCKS],
+                    )
+                )
+                start = end
+    return out
+
+
+def draft_schema(passage: Passage, encoded: dict[str, EncodedBlock]) -> type[Draft]:
+    """The draft's schema for this passage: every block answered, in order, with legal codes."""
+
+    texts = {i: b.text for i, b in encoded.items()}
+
+    class PassageDraft(Draft):
+        @model_validator(mode="before")
+        @classmethod
+        def _settle_order_and_strays(cls, data: Any) -> Any:
+            if not isinstance(data, dict):
+                return data
+            data = {**data, "blocks": in_order(data.get("blocks"), passage.ids, "source", texts)}
+            tks = data.get("tks")
+            if isinstance(tks, list):  # a TK for a block outside the passage cannot be placed
+                data["tks"] = [
+                    t
+                    for t in tks
+                    if not isinstance(t, dict) or str(t.get("block", "")).strip() in passage.ids
+                ]
+            return data
+
+        @model_validator(mode="after")
+        def _complete_and_legal(self) -> "PassageDraft":
+            if [b.source for b in self.blocks] != passage.ids:
+                raise ValueError(
+                    f"the answer must cover exactly the blocks {passage.ids}, in order"
+                )
+            for block in self.blocks:
+                try:
+                    encoded[block.source].validate_pieces(block.targets)
+                except InlineCodeError as exc:
+                    raise ValueError(f"block {block.source}: {exc}") from exc
+            unknown = [t.block for t in self.tks if t.block not in passage.ids]
+            if unknown:
+                raise ValueError(f"TKs for blocks outside the passage: {unknown}")
+            return self
+
+    return PassageDraft
+
+
+def _legal(block: EncodedBlock) -> Callable[[Sequence[str]], bool]:
+    def is_legal(pieces: Sequence[str]) -> bool:
+        try:
+            block.validate_pieces(pieces)
+        except InlineCodeError:
+            return False
+        return True
+
+    return is_legal
+
+
+def create_tables(db: sqlite3.Connection) -> None:
+    db.execute(
+        "create table if not exists targets (source text not null, position integer not null,"
+        " text text not null, primary key (source, position))"
+    )
+    db.execute("create table if not exists drafted_passages (first_block text primary key)")
+    tk.create_tables(db)
+
+
+def draft(
+    db: sqlite3.Connection,
+    llm: LLM,
+    source: Epub,
+    bible: Bible,
+    model: str,
+    progress: Tick = no_tick,
+) -> None:
+    """Draft every passage not yet drafted. A passage's results are stored in one step."""
+    done = {str(r[0]) for r in db.execute("select first_block from drafted_passages")}
+    blocks = [
+        SourceBlock(b.id, chapter, source.encode_block(b.id).text)
+        for chapter, ch in enumerate(source.book().chapters)
+        for scene in ch.scenes
+        for b in scene.blocks
+    ]
+    text_of = {b.id: b.text for b in blocks}
+    all_passages = passages(source)
+    for index, passage in enumerate(all_passages):
+        if passage.ids[0] in done:
+            continue
+        progress.begin(index, len(all_passages))
+        encoded = {i: source.encode_block(i) for i in passage.ids}
+        shown = " ".join(text_of[i] for i in (*passage.before, *passage.ids, *passage.after))
+        targets = {
+            str(s): str(t)
+            for s, t in db.execute(
+                "select source, group_concat(text, char(10)) from"
+                " (select * from targets order by source, position) group by source"
+            )
+        }
+        earlier = [
+            (b, targets[b.id]) for b in blocks if b.chapter < passage.chapter and b.id in targets
+        ]
+
+        def view(ids: list[str]) -> list[dict[str, str]]:
+            return [{"id": i, "text": text_of[i]} for i in ids]
+
+        request = LLMRequest(
+            stage="draft",
+            prompt_version=PROMPT_VERSION,
+            model=model,
+            prompt=_PROMPT,
+            bible_slice=bible_slice(
+                bible, shown, passage.chapter, [*passage.before, *passage.ids, *passage.after]
+            ),
+            source_text=json.dumps(
+                {
+                    "before": view(passage.before),
+                    "passage": view(passage.ids),
+                    "after": view(passage.after),
+                    "concordance": concordance(bible, shown, passage.chapter, earlier),
+                }
+            ),
+        )
+        result = llm.call(request, draft_schema(passage, encoded)).output
+        with db:
+            for block in result.blocks:
+                laid = lay_out_legally(block.targets, bible.style, _legal(encoded[block.source]))
+                db.executemany(
+                    "insert into targets values (?, ?, ?)",
+                    [(block.source, n, t) for n, t in enumerate(laid)],
+                )
+            tk.store(db, result.tks)
+            db.execute("insert into drafted_passages values (?)", (passage.ids[0],))
+        progress(index + 1, len(all_passages))
