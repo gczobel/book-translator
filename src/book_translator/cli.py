@@ -338,20 +338,24 @@ def _init(args: argparse.Namespace) -> None:
         sys.exit(f"error: {exc}")
     print(f"Workspace: {path}")
     _print_structure(book)
+    _print_estimate(book, args.cap)
+    print("No LLM has been called.")
+
+
+def _print_estimate(book: Book, cap: float) -> None:
     est = estimate(book)
-    print(f"Estimated cost: ${est.cost_usd:.2f} for {est.words} words (cap ${args.cap:.2f})")
+    print(f"Estimated cost: ${est.cost_usd:.2f} for {est.words} words (cap ${cap:.2f})")
     for stage, cost in est.by_stage.items():
         print(f"  {stage}: ${cost:.2f}")
     print(
         f"  one clean pass ${est.base_usd:.2f}"
         f" + {est.margin:.0%} margin for retries = ${est.cost_usd:.2f}"
     )
-    if args.cap < est.cost_usd:
+    if cap < est.cost_usd:
         print(
-            f"Warning: the cap (${args.cap:.2f}) is below the estimate (${est.cost_usd:.2f});"
+            f"Warning: the cap (${cap:.2f}) is below the estimate (${est.cost_usd:.2f});"
             " the run may stop before it finishes. Raise it with `run --cap`."
         )
-    print("No LLM has been called.")
 
 
 def _print_structure(book: Book) -> None:
