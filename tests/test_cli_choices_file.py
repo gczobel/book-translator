@@ -118,6 +118,28 @@ def test_free_text_may_keep_a_parenthetical_the_source_excerpt_has(tmp_path: Pat
     assert row["resolution"] == "una velada (again)"
 
 
+def test_choosing_a_banned_variant_at_the_analysis_gate_unbans_it(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    main(["init", str(EPUB), "--workspace", str(ws), "--variety", "neutral"])
+    entry = {
+        "term": "ghost",
+        "rendering": "fantasma",
+        "banned_variants": ["espectro", "aparición"],
+        "origin": "extracted",
+    }
+    main(["run", str(ws)], adapter=Part2Adapter([json.dumps(part2(glossary=[entry]))]))
+    path = write_choices(ws, {"glossary-1": "espectro"})
+
+    main(["approve", str(ws), "--choices", str(path)])
+
+    with sqlite3.connect(ws / "book.sqlite") as db:
+        bible = json.loads(db.execute("select result from bible").fetchone()[0])
+    (saved,) = bible["glossary"]
+    assert saved["rendering"] == "espectro"
+    assert "espectro" not in saved["banned_variants"]
+    assert "aparición" in saved["banned_variants"]
+
+
 def test_free_text_is_refused_on_a_card_that_does_not_take_it(
     tmp_path: Path,
 ) -> None:

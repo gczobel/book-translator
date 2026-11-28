@@ -61,8 +61,9 @@ def review_content(db: sqlite3.Connection) -> tuple[list[Card], dict[str, list[d
         db.row_factory = None
     cards: list[Card] = []
     summary: list[dict[str, str]] = []
-    first_open: dict[str, str] = {}
+    first_seen: dict[str, sqlite3.Row] = {}  # per span: the earliest TK, settled or open
     for row in rows:
+        earlier = first_seen.setdefault(row["span"], row)
         if row["resolution"] is not None:
             summary.append(
                 {
@@ -74,7 +75,6 @@ def review_content(db: sqlite3.Connection) -> tuple[list[Card], dict[str, list[d
             )
             continue
         candidates = json.loads(row["candidates"])
-        earlier = first_open.setdefault(row["span"], row["id"])
         why = (
             "A recurring term is decided once, by you."
             if row["scope"] == "recurring"
@@ -85,8 +85,13 @@ def review_content(db: sqlite3.Connection) -> tuple[list[Card], dict[str, list[d
             why += (
                 f" Careful, this looks like a note, not text for the sentence: {'; '.join(notes)}."
             )
-        if earlier != row["id"]:
-            why += f" Same term as {earlier}: decide it once."
+        if earlier["id"] != row["id"]:
+            settled = (
+                f" (already settled to {earlier['resolution']!r})"
+                if earlier["resolution"] is not None
+                else ""
+            )
+            why += f" Same term as {earlier['id']}{settled}: decide it once."
         cards.append(
             TKCard(
                 id=row["id"],

@@ -225,6 +225,23 @@ def test_a_second_tk_for_the_same_term_points_at_the_first_so_the_reader_decides
     assert "Same term as TK-1" in cards["TK-2"]["why"]
 
 
+def test_a_tk_for_a_term_an_earlier_tk_settled_says_what_it_was_settled_to(
+    tmp_path: Path,
+) -> None:
+    first = tk(confidence=0.9)
+    second = {**first, "block": source_ids()[4], "provisional": "Fin."}
+
+    def sure_of_the_first(card: dict[str, Any]) -> dict[str, Any]:
+        return {**unsure(card), "confidence": 0.9 if card["id"] == "TK-1" else 0.1}
+
+    ws = stopped_at_gate(tmp_path, ResolveAdapter([first, second], sure_of_the_first))
+
+    (card,) = review(ws)["cards"]
+    assert card["id"] == "TK-2"
+    assert "Same term as TK-1" in card["why"]
+    assert "already settled to 'tarde tranquila'" in card["why"]
+
+
 def test_a_later_choice_bans_the_rendering_the_entry_had_before(tmp_path: Path) -> None:
     first = recurring_in_chapter_two()
     second = {
