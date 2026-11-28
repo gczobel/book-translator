@@ -152,8 +152,9 @@ def _add_to_glossary(
             )
         )
         return
+    previous = [entry.rendering] if entry.rendering else []
     entry.rendering = rendering
-    entry.banned_variants = sorted({*entry.banned_variants, *banned} - {rendering})
+    entry.banned_variants = sorted({*entry.banned_variants, *banned, *previous} - {rendering})
 
 
 def _fix_earlier_chapters(
