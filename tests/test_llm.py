@@ -3,6 +3,7 @@
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -23,8 +24,8 @@ class Greeting(BaseModel):
     text: str
 
 
-def make_request(**overrides: str) -> LLMRequest:
-    fields = {
+def make_request(**overrides: Any) -> LLMRequest:
+    fields: dict[str, Any] = {
         "stage": "draft",
         "prompt_version": "v1",
         "model": "anthropic:claude-sonnet-5-5",
@@ -197,6 +198,7 @@ def test_when_everything_is_refused_it_stops_with_what_was_tried(tmp_path: Path)
     assert stopped.value.stage == request.stage
     assert stopped.value.attempts == 3
     assert stopped.value.category == "reasoning_extraction"
+    assert stopped.value.log is not None
     text = stopped.value.log.read_text()
     assert "sonnet" in text and "reworded" in text and "opus" in text
     assert stopped.value.log == tmp_path / "logs" / f"refused-{request_key(request)}.json"

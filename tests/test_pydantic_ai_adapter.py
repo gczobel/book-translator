@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -18,8 +19,8 @@ class Greeting(BaseModel):
     text: str
 
 
-def make_request(**overrides: str) -> LLMRequest:
-    fields = {
+def make_request(**overrides: Any) -> LLMRequest:
+    fields: dict[str, Any] = {
         "stage": "draft",
         "prompt_version": "v1",
         "model": "anthropic:claude-sonnet-5-5",

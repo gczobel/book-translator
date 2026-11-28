@@ -1,6 +1,7 @@
 """Seam: record mode wraps a (fake) real adapter and writes recordings the replay adapter reads."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -26,8 +27,8 @@ class FakeAdapter:
         return RawAnswer(text, *self._tokens)
 
 
-def make_request(**overrides: str) -> LLMRequest:
-    fields = {
+def make_request(**overrides: Any) -> LLMRequest:
+    fields: dict[str, Any] = {
         "stage": "draft",
         "prompt_version": "v1",
         "model": "anthropic:claude-sonnet-5-5",
