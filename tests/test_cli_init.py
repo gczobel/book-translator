@@ -78,3 +78,23 @@ def test_init_rejects_a_file_that_is_not_an_epub(tmp_path: Path) -> None:
         main(["init", str(bad), "--variety", "neutral", "--workspace", str(tmp_path / "ws")])
     assert exc.value.code != 0
     assert not (tmp_path / "ws").exists()
+
+
+def test_init_shows_the_estimate_for_every_stage_that_calls_the_model(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    init(tmp_path, "--variety", "neutral")
+
+    out = capsys.readouterr().out
+    for stage in (
+        "analysis",
+        "consolidation",
+        "enrichment",
+        "draft",
+        "tk_resolution",
+        "fidelity",
+        "polish",
+        "post_polish_fidelity",
+    ):
+        assert f"  {stage}: $" in out
+    assert "margin for retries" in out
