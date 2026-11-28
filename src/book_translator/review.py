@@ -28,6 +28,7 @@ class Card(BaseModel):
     recommended: str
     why: str = ""
     choice: str | None = None
+    free_text: bool = False
 
 
 def write_review(
@@ -46,10 +47,13 @@ def write_review(
             "create table if not exists review_cards"
             " (gate text, id text, options text, recommended text, primary key (gate, id))"
         )
+        if "free_text" not in {r[1] for r in db.execute("pragma table_info(review_cards)")}:
+            db.execute("alter table review_cards add column free_text integer not null default 0")
         db.execute("delete from review_cards where gate = ?", (gate,))
         db.executemany(
-            "insert into review_cards values (?, ?, ?, ?)",
-            [(gate, c.id, json.dumps(c.options), c.recommended) for c in cards],
+            "insert into review_cards (gate, id, options, recommended, free_text)"
+            " values (?, ?, ?, ?, ?)",
+            [(gate, c.id, json.dumps(c.options), c.recommended, c.free_text) for c in cards],
         )
     document = {"gate": gate, "cards": [c.model_dump() for c in cards], **(extra or {})}
     path.write_text(yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=100))
@@ -91,6 +95,39 @@ def read_choices(db: sqlite3.Connection, path: Path, gate: str) -> dict[str, str
         if not isinstance(choice, yaml.ScalarNode) or choice.value not in options:
             raise _error(path, choice, f"card {id_!r}: choice must be one of: {', '.join(options)}")
         choices[id_] = choice.value
+    return choices
+
+
+def read_choices_file(db: sqlite3.Connection, path: Path, gate: str) -> dict[str, str]:
+    """The choices in a JSON file {card id: choice}, checked against the gate's cards.
+
+    A choice must be one of the card's options, unless the card takes free text (then any
+    non-empty text goes). Raises ReviewError for anything else.
+    """
+    cards = {
+        row[0]: (json.loads(row[1]), bool(row[2]))
+        for row in db.execute(
+            "select id, options, free_text from review_cards where gate = ?", (gate,)
+        )
+    }
+    try:
+        loaded = json.loads(path.read_text())
+    except (OSError, ValueError) as exc:
+        raise ReviewError(f"{path.name}: cannot read the choices: {exc}") from exc
+    if not isinstance(loaded, dict):
+        raise ReviewError(f"{path.name}: expected a JSON object of card id to choice")
+    choices: dict[str, str] = {}
+    for id_, choice in loaded.items():
+        if id_ not in cards:
+            raise ReviewError(f"{path.name}: unknown card id {id_!r}")
+        options, free_text = cards[id_]
+        if not isinstance(choice, str) or not choice.strip():
+            raise ReviewError(f"{path.name}: card {id_!r}: the choice must be non-empty text")
+        if choice not in options and not free_text:
+            raise ReviewError(
+                f"{path.name}: card {id_!r}: choice must be one of: {', '.join(options)}"
+            )
+        choices[id_] = choice.strip() if choice not in options else choice
     return choices
 
 

@@ -93,6 +93,7 @@ def review_content(db: sqlite3.Connection) -> tuple[list[Card], dict[str, list[d
                 context=row["excerpt"],
                 options=[c["rendering"] for c in candidates],
                 recommended=row["recommendation"],
+                free_text=True,
                 why=why,
                 type=row["type"],
                 location=row["block"],

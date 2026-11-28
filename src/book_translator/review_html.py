@@ -1,6 +1,7 @@
-"""A read-only HTML view of a review file, so reading the cards is pleasant.
+"""An HTML view of a review file, so reading the cards is pleasant.
 
-The YAML stays the thing that is edited; this page is regenerated from it whenever it changes.
+The page is regenerated from the YAML whenever it changes. Scripts on, it is one card at a time
+and produces the choices file for `approve --choices`; scripts off, it is this plain listing.
 Self-contained: inline CSS, no network assets, every value HTML-escaped.
 """
 
@@ -10,12 +11,7 @@ from typing import Any
 
 import yaml
 
-_CSS = (
-    "body{font-family:sans-serif;max-width:48rem;margin:2rem auto;padding:0 1rem;line-height:1.5}"
-    "article{border:1px solid #ccc;border-radius:.5rem;padding:1rem;margin:1rem 0}"
-    "h2{font-size:1.1rem;margin:0 0 .5rem}"
-    ".rec{font-weight:bold}"
-)
+from book_translator.review_page import interactive
 
 
 def html_path(review: Path) -> Path:
@@ -31,13 +27,8 @@ def write_html(review: Path) -> None:
         if name not in ("gate", "cards"):
             title = escape(name.replace("_", " ").title())
             body += f"<section><h2>{title}</h2>{_value(value)}</section>"
-    page = (
-        '<!doctype html><html><head><meta charset="utf-8">'
-        f"<title>Review: {gate}</title><style>{_CSS}</style></head><body>"
-        f"<h1>Review: {gate}</h1><p>Read-only view. Edit the YAML file to choose.</p>"
-        f"{body}</body></html>"
-    )
-    html_path(review).write_text(page)
+    static = f"<p>Read-only view. Edit the YAML file to choose.</p>{body}"
+    html_path(review).write_text(interactive(gate, document, static))
 
 
 def _value(value: Any) -> str:
@@ -50,7 +41,7 @@ def _value(value: Any) -> str:
     return escape(str(value))
 
 
-_KNOWN = ("id", "question", "context", "options", "recommended", "why", "choice")
+_KNOWN = ("id", "question", "context", "options", "recommended", "why", "choice", "free_text")
 
 
 def _card(card: dict[str, Any]) -> str:

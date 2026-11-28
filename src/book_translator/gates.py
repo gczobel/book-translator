@@ -8,7 +8,13 @@ import sqlite3
 from pathlib import Path
 
 from book_translator.bible import Bible
-from book_translator.review import Card, read_choices, record_choices, write_review
+from book_translator.review import (
+    Card,
+    read_choices,
+    read_choices_file,
+    record_choices,
+    write_review,
+)
 from book_translator.review_html import write_html
 from book_translator.tk_gate import TK_GATE, apply_tk, review_content
 from book_translator.workspace import DB_NAME
@@ -68,6 +74,7 @@ def analysis_cards(bible: Bible, variety: str) -> list[Card]:
                 if entry.rendering != entry.term
                 else [entry.rendering],
                 recommended=entry.rendering,
+                free_text=True,
                 why=(
                     "The usual Spanish form, found in a source."
                     if names
@@ -83,6 +90,7 @@ def analysis_cards(bible: Bible, variety: str) -> list[Card]:
                 context=motif.description,
                 options=sorted({motif.locked_rendering, motif.name}),
                 recommended=motif.locked_rendering,
+                free_text=True,
                 why="Locked so that the motif reads the same each time it returns.",
             )
         )
@@ -133,8 +141,11 @@ class GateError(Exception):
     pass
 
 
-def approve_waiting_gate(workspace: Path) -> str:
-    """Validate the reader's edits, record the choices and open the gate. Returns its name."""
+def approve_waiting_gate(workspace: Path, choices_file: Path | None = None) -> str:
+    """Validate the reader's edits, record the choices and open the gate. Returns its name.
+
+    A choices file {card id: choice} overrides the review file's choices for the cards it names.
+    """
     db = sqlite3.connect(workspace / DB_NAME)
     try:
         has_stages = db.execute("select 1 from sqlite_master where name = 'stages'").fetchone()
@@ -147,6 +158,8 @@ def approve_waiting_gate(workspace: Path) -> str:
         stage = str(row[0])
         gate = stage.removesuffix(" gate")
         choices = read_choices(db, review_path(workspace, gate), gate)
+        if choices_file is not None:
+            choices.update(read_choices_file(db, choices_file, gate))
         write_html(review_path(workspace, gate))
         record_choices(db, gate, choices)
         APPLIERS[gate](db, choices)
