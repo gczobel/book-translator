@@ -456,6 +456,42 @@ def waive(db: sqlite3.Connection, check_name: str, blocks: list[str], reason: st
     return count
 
 
+def unwaive(db: sqlite3.Connection, check_name: str, blocks: list[str]) -> int:
+    """Take back the waiver of `check_name` for `blocks`: its accepted findings are open again
+    and QA fails until they are fixed or waived anew. Returns how many findings reopened."""
+    create_tables(db)
+    missing = [
+        b
+        for b in blocks
+        if not db.execute(
+            "select 1 from qa_waivers where check_name = ? and block = ?", (check_name, b)
+        ).fetchone()
+    ]
+    if missing:
+        raise WaiverError(f"no waiver for {check_name} in block(s): {', '.join(missing)}")
+    count = 0
+    with db:
+        for block in blocks:
+            rows = db.execute(
+                "select check_name, block, message from qa_accepted"
+                " where check_name = ? and block = ?",
+                (check_name, block),
+            ).fetchall()
+            db.executemany(
+                "insert into qa_findings (check_name, block, message) values (?, ?, ?)", rows
+            )
+            db.execute(
+                "delete from qa_accepted where check_name = ? and block = ?", (check_name, block)
+            )
+            db.execute(
+                "delete from qa_waivers where check_name = ? and block = ?", (check_name, block)
+            )
+            count += len(rows)
+        if count:
+            db.execute("update stages set status = 'failed' where stage = ?", (STAGE,))
+    return count
+
+
 def stored_accepted(db: sqlite3.Connection) -> list[tuple[Finding, str]]:
     tables = {r[0] for r in db.execute("select name from sqlite_master where type = 'table'")}
     if "qa_accepted" not in tables:

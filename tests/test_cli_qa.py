@@ -298,6 +298,40 @@ def test_only_an_open_finding_can_be_waived(
     assert "no open omission finding" in message and source_ids()[1] in message
 
 
+def test_unwaive_reopens_the_finding_and_blocks_the_build_again(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    adapter = CountingAdapter()
+    ws = translate(tmp_path, adapter)
+    block = source_ids()[1]
+    set_target(ws, block, "")
+    qa(ws, adapter, capsys)
+    main(["waive", str(ws), "omission", block, "--reason", "on purpose"])
+    capsys.readouterr()
+
+    main(["unwaive", str(ws), "omission", block])
+    printed = capsys.readouterr().out
+
+    assert "1 finding(s) reopened" in printed
+    assert findings(ws) == [(block, "omission")]
+    with sqlite3.connect(ws / "book.sqlite") as db, pytest.raises(QAFailedError):
+        require_qa_clean(db)
+    out = qa(ws, adapter, capsys)  # a later run does not bring the waiver back
+    assert "block the build" in out and "accepted" not in out
+
+
+def test_only_a_waived_finding_can_be_unwaived(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    adapter = CountingAdapter()
+    ws = translate(tmp_path, adapter)
+
+    with pytest.raises(SystemExit) as stopped:
+        main(["unwaive", str(ws), "omission", source_ids()[1]])
+
+    assert "no waiver for omission" in str(stopped.value)
+
+
 def test_narration_and_speech_sharing_a_paragraph_are_broken_apart_on_every_run(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
