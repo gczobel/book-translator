@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
@@ -11,7 +12,7 @@ from pydantic import BaseModel, ValidationError
 
 from book_translator.budget import Budget
 from book_translator.cache import CallCache
-from book_translator.config import PRICES
+from book_translator.config import FALLBACK_MODELS, PRICES
 
 
 class InvalidOutputError(Exception):
@@ -35,6 +36,10 @@ class InvalidOutputError(Exception):
         self.log = log  # the file holding the raw answer, if it could be written
 
 
+REASONING_REFUSAL = "reasoning_extraction"
+BILLED_REFUSALS = {"bio", "frontier_llm", REASONING_REFUSAL}  # the provider charges for these
+
+
 class ModelRefusedError(Exception):
     """The provider refused the request (a content filter), so there is no answer to read."""
 
@@ -46,8 +51,14 @@ class ModelRefusedError(Exception):
         key: str = "",
         attempts: int = 0,
         log: Path | None = None,
+        category: str = "",
+        input_tokens: int = 0,
+        output_tokens: int = 0,
     ) -> None:
         super().__init__(message)
+        self.category = category  # the provider's reason class, e.g. "reasoning_extraction"
+        self.input_tokens = input_tokens  # what the refused call cost, if the provider billed it
+        self.output_tokens = output_tokens
         self.stage = stage
         self.key = key
         self.attempts = attempts
@@ -112,6 +123,7 @@ class LLMRequest:
     # Filled in by `LLM.call` for the adapter; not part of `request_key`, so recordings stay valid.
     output_schema: str = ""
     feedback: str = ""
+    reworded: bool = False  # set after a reasoning refusal: the adapter asks for plainer answers
 
 
 @dataclass(frozen=True)
@@ -178,14 +190,27 @@ def _projected_cost(request: LLMRequest) -> float:
     return cost_of(request.model, tokens, tokens)
 
 
+def _describe(asked: LLMRequest, exc: ModelRefusedError) -> str:
+    how = "reworded" if asked.reworded else "as asked"
+    why = f", {exc.category}" if exc.category else ""
+    return f"{asked.model.split(':', 1)[-1]} {how}{why}"
+
+
 class LLM:
+    def _record_refusal(self, stage: str, model: str, exc: ModelRefusedError) -> None:
+        """A refused call the provider bills counts against the spending cap."""
+        if self._budget is not None and exc.category in BILLED_REFUSALS:
+            self._budget.record(stage, cost_of(model, exc.input_tokens, exc.output_tokens))
+
     def __init__(
         self,
         adapter: Adapter,
         database: Path,
         max_attempts: int = 3,
         budget: Budget | None = None,
+        fallbacks: Mapping[str, str] | None = None,
     ) -> None:
+        self._fallbacks = FALLBACK_MODELS if fallbacks is None else fallbacks
         self._adapter = adapter
         self._budget = budget
         self._cache = CallCache(database)
@@ -202,20 +227,32 @@ class LLM:
         refused: ModelRefusedError | None = None
         last = ""
         asked = replace(request, output_schema=json.dumps(schema.model_json_schema()))
+        trail: list[str] = []
+        switched = False
         for attempt in range(self._max_attempts):
             if error is not None:
                 asked = replace(asked, feedback=str(error))
             if self._budget is not None:
-                self._budget.check(_projected_cost(request))
+                self._budget.check(_projected_cost(asked))
             try:
                 raw = self._adapter.complete(asked, key, attempt)
-            except ModelRefusedError as exc:  # no tokens are reported for a refused call
+            except ModelRefusedError as exc:
                 refused = exc
+                trail.append(_describe(asked, exc))
+                self._record_refusal(request.stage, asked.model, exc)
+                if switched:
+                    break  # the fallback model refused too
+                if exc.category == REASONING_REFUSAL and not asked.reworded:
+                    asked = replace(asked, reworded=True)  # the same ask, in plainer words
+                elif (other := self._fallbacks.get(asked.model)) is not None:
+                    asked, switched = replace(asked, model=other), True
+                else:
+                    break  # nothing left to change; sending it again would be refused again
                 continue
             refused = None
             if self._budget is not None:
                 self._budget.record(
-                    request.stage, cost_of(request.model, raw.input_tokens, raw.output_tokens)
+                    request.stage, cost_of(asked.model, raw.input_tokens, raw.output_tokens)
                 )
             last = raw.text
             input_tokens += raw.input_tokens
@@ -226,16 +263,18 @@ class LLM:
                 error = exc
                 continue
             self._cache.put(key, strip_fences(raw.text))
-            cost = cost_of(request.model, input_tokens, output_tokens)
+            cost = cost_of(asked.model, input_tokens, output_tokens)
             return Result(output, Usage(input_tokens, output_tokens, cost))
         if refused is not None:
-            log = save_refused(self._database, request.stage, key, str(refused), self._max_attempts)
+            message = f"{refused} [tried: {'; '.join(trail)}]"
+            log = save_refused(self._database, request.stage, key, message, len(trail))
             raise ModelRefusedError(
-                str(refused),
+                message,
                 stage=request.stage,
                 key=key,
-                attempts=self._max_attempts,
+                attempts=len(trail),
                 log=log,
+                category=refused.category,
             )
         log = save_invalid(self._database, request.stage, key, last, str(error), self._max_attempts)
         raise InvalidOutputError(

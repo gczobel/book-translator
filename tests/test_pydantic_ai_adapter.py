@@ -1,12 +1,15 @@
 """Seam: the pydantic-ai adapter, driven by pydantic-ai's function model (never a real API)."""
 
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ThinkingPart
 from pydantic_ai.models import Model
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.usage import RequestUsage
 
 from book_translator.llm import LLM, LLMRequest, ModelRefusedError
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
@@ -16,8 +19,8 @@ class Greeting(BaseModel):
     text: str
 
 
-def make_request(**overrides: str) -> LLMRequest:
-    fields = {
+def make_request(**overrides: Any) -> LLMRequest:
+    fields: dict[str, Any] = {
         "stage": "draft",
         "prompt_version": "v1",
         "model": "anthropic:claude-sonnet-5-5",
@@ -126,3 +129,36 @@ def test_a_refusal_by_the_provider_becomes_our_own_error_with_its_text() -> None
 
     with pytest.raises(ModelRefusedError, match="reasoning_extraction"):
         adapter.complete(make_request(), "k", 0)
+
+
+def test_a_refusal_carries_its_category_and_the_tokens_the_provider_billed() -> None:
+    def refuse(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(
+            parts=[],
+            usage=RequestUsage(input_tokens=15641, output_tokens=1410),
+            finish_reason="content_filter",
+            provider_details={"refusal": "no", "refusal_category": "reasoning_extraction"},
+        )
+
+    adapter = PydanticAIAdapter(lambda name: FunctionModel(refuse))
+
+    with pytest.raises(ModelRefusedError) as stopped:
+        adapter.complete(make_request(), "k", 0)
+
+    assert stopped.value.category == "reasoning_extraction"
+    assert (stopped.value.input_tokens, stopped.value.output_tokens) == (15641, 1410)
+
+
+def test_a_reworded_request_asks_for_short_factual_reasons() -> None:
+    seen: list[str] = []
+
+    def answer(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append(str(info.instructions))
+        return ModelResponse(parts=[TextPart(content='{"text": "hi"}')])
+
+    adapter = PydanticAIAdapter(lambda name: FunctionModel(answer))
+    adapter.complete(make_request(), "k", 0)
+    adapter.complete(replace(make_request(), reworded=True), "k", 0)
+
+    assert "own reasoning process" not in seen[0]
+    assert "own reasoning process" in seen[1]
