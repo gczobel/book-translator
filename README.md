@@ -42,6 +42,21 @@ The tag's commit hash is the first line of the first command (for an annotated t
 `361970745` and a head branch starting `release-please--branches--`. If a `release-tag-unverified`
 issue is open, do not install that tag.
 
+## Installing epubcheck
+
+`book-translator export` validates the result with [epubcheck](https://www.w3.org/publishing/epubcheck/),
+which needs Java. From a checkout of this repository, install the pinned release:
+
+```
+scripts/install-epubcheck            # installs under ~/.local; pass a PREFIX to choose another
+```
+
+It downloads the version in `scripts/epubcheck.pin`, refuses to install unless the sha256 matches,
+unpacks it to `PREFIX/share/epubcheck/<version>/` and writes the wrapper `PREFIX/bin/epubcheck`,
+which `export` finds on `PATH`. To use a different install, set `EPUBCHECK` to a command or to the
+`epubcheck.jar` path. To change the pinned version, edit `scripts/epubcheck.pin` (version and
+checksum together); CI can read the same file with `. scripts/epubcheck.pin`.
+
 ## Dev
 
 ```
