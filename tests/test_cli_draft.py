@@ -278,7 +278,9 @@ def test_a_refusal_that_persists_stops_the_run_with_a_short_message_and_a_log(
     ws: Path,
 ) -> None:
     def refused(request: LLMRequest, attempt: int) -> str:
-        raise ModelRefusedError("This request was blocked (reasoning_extraction)")
+        raise ModelRefusedError(
+            "This request was blocked (reasoning_extraction)", category="reasoning_extraction"
+        )
 
     adapter = DraftAdapter(refused)
     with pytest.raises(SystemExit) as stopped:
@@ -290,7 +292,8 @@ def test_a_refusal_that_persists_stops_the_run_with_a_short_message_and_a_log(
     logs = list((ws / "logs").glob("refused-*.json"))
     assert len(logs) == 1 and str(logs[0]) in message
     assert f"book-translator run {ws}" in message
-    assert adapter.draft_attempts == 3
+    assert adapter.draft_attempts == 3  # as asked, reworded, then the fallback model
+    assert "opus" in logs[0].read_text()
 
 
 def test_a_tk_of_an_unknown_type_is_retried(ws: Path) -> None:

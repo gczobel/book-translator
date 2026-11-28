@@ -46,6 +46,13 @@ PRICES: dict[str, Price] = {
     "anthropic:claude-opus-5-5": Price(5.0, 25.0),
 }
 
+# The model to try when a stage's model refuses a request (a content filter), keyed by model
+# string. Both ends need an entry in PRICES.
+FALLBACK_MODELS: dict[str, str] = {
+    "anthropic:claude-sonnet-5-5": "anthropic:claude-opus-5-5",
+    "anthropic:claude-opus-5-5": "anthropic:claude-sonnet-5-5",
+}
+
 # Environment variable holding the API key for each provider used in STAGE_MODELS. Add an entry
 # when you point a stage at another provider.
 PROVIDER_KEYS: dict[str, str] = {"anthropic": "ANTHROPIC_API_KEY"}

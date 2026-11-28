@@ -1,10 +1,13 @@
 """Seam 3: the LLM interface, observed through the replay adapter and the call cache."""
 
+import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
 
+from book_translator.budget import Budget
 from book_translator.llm import (
     LLM,
     InvalidOutputError,
@@ -128,46 +131,121 @@ def test_invalid_output_is_never_cached(tmp_path: Path) -> None:
 
 
 class Refusing:
-    """An adapter refusing its first `refusals` calls, then answering."""
+    """An adapter that refuses the calls its `refuse` function says to, and answers the rest.
+    `seen` keeps each request it was sent."""
 
-    def __init__(self, refusals: int) -> None:
-        self.refusals = refusals
-        self.calls = 0
+    def __init__(self, refuse: Callable[[LLMRequest, int], bool], category: str = "") -> None:
+        self.refuse = refuse
+        self.category = category
+        self.seen: list[LLMRequest] = []
 
     def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
-        self.calls += 1
-        if self.calls <= self.refusals:
-            raise ModelRefusedError("blocked: reasoning_extraction")
+        self.seen.append(request)
+        if self.refuse(request, len(self.seen)):
+            raise ModelRefusedError(
+                f"blocked: {self.category}", category=self.category, input_tokens=1000
+            )
         return RawAnswer('{"text": "hello"}', 10, 5)
 
 
-def test_a_refusal_is_retried_and_a_later_answer_is_returned(tmp_path: Path) -> None:
-    adapter = Refusing(refusals=2)
+def always(request: LLMRequest, call: int) -> bool:
+    return True
+
+
+SONNET, OPUS = "anthropic:claude-sonnet-5-5", "anthropic:claude-opus-5-5"
+
+
+def test_a_reasoning_refusal_is_retried_reworded_and_then_answered(tmp_path: Path) -> None:
+    adapter = Refusing(lambda r, n: n == 1, "reasoning_extraction")
 
     result = LLM(adapter, tmp_path / "book.sqlite").call(make_request(), Greeting)
 
     assert result.output == Greeting(text="hello")
-    assert adapter.calls == 3
+    assert [r.reworded for r in adapter.seen] == [False, True]
+    assert [r.model for r in adapter.seen] == [SONNET, SONNET]  # same model, plainer ask
 
 
-def test_a_refusal_that_persists_is_saved_and_raised_with_its_context(tmp_path: Path) -> None:
+def test_a_reworded_ask_that_is_still_refused_goes_to_the_fallback_model(tmp_path: Path) -> None:
+    adapter = Refusing(lambda r, n: r.model == SONNET, "reasoning_extraction")
+
+    result = LLM(adapter, tmp_path / "book.sqlite").call(make_request(), Greeting)
+
+    assert result.output == Greeting(text="hello")
+    assert [(r.model, r.reworded) for r in adapter.seen] == [
+        (SONNET, False),
+        (SONNET, True),
+        (OPUS, True),
+    ]
+
+
+def test_another_category_goes_straight_to_the_fallback_model(tmp_path: Path) -> None:
+    adapter = Refusing(lambda r, n: r.model == SONNET, "general_harms")
+
+    LLM(adapter, tmp_path / "book.sqlite").call(make_request(), Greeting)
+
+    assert [(r.model, r.reworded) for r in adapter.seen] == [(SONNET, False), (OPUS, False)]
+
+
+def test_when_everything_is_refused_it_stops_with_what_was_tried(tmp_path: Path) -> None:
     request = make_request()
-    adapter = Refusing(refusals=99)
+    adapter = Refusing(always, "reasoning_extraction")
 
     with pytest.raises(ModelRefusedError) as stopped:
         LLM(adapter, tmp_path / "book.sqlite").call(request, Greeting)
 
-    assert adapter.calls == 3
+    assert len(adapter.seen) == 3  # as asked, reworded, fallback model: never the same ask twice
     assert stopped.value.stage == request.stage
     assert stopped.value.attempts == 3
-    assert "reasoning_extraction" in stopped.value.detail
+    assert stopped.value.category == "reasoning_extraction"
+    text = stopped.value.log.read_text()
+    assert "sonnet" in text and "reworded" in text and "opus" in text
     assert stopped.value.log == tmp_path / "logs" / f"refused-{request_key(request)}.json"
-    assert "reasoning_extraction" in stopped.value.log.read_text()
+
+
+def test_a_refusal_with_no_fallback_model_stops_without_resending(tmp_path: Path) -> None:
+    adapter = Refusing(always, "general_harms")
+
+    with pytest.raises(ModelRefusedError):
+        LLM(adapter, tmp_path / "book.sqlite", fallbacks={}).call(make_request(), Greeting)
+
+    assert len(adapter.seen) == 1
+
+
+def test_the_answer_of_the_fallback_model_is_costed_at_its_own_price(tmp_path: Path) -> None:
+    adapter = Refusing(lambda r, n: r.model == SONNET, "general_harms")
+
+    result = LLM(adapter, tmp_path / "book.sqlite").call(make_request(), Greeting)
+
+    assert result.usage.cost_usd == pytest.approx((10 * 5.0 + 5 * 25.0) / 1e6)
+
+
+def test_a_billed_refusal_counts_against_the_cap_and_a_free_one_does_not(tmp_path: Path) -> None:
+    database = tmp_path / "book.sqlite"
+    with sqlite3.connect(database) as db:
+        db.execute("create table settings (key text primary key, value text not null)")
+        db.execute("insert into settings values ('cap_usd', '10.00')")
+    budget = Budget(database)
+
+    LLM(Refusing(lambda r, n: n == 1, "general_harms"), database, budget=budget).call(
+        make_request(), Greeting
+    )
+    after_free = budget.spent()
+    LLM(Refusing(lambda r, n: n == 1, "reasoning_extraction"), database, budget=budget).call(
+        make_request(source_text="otra"), Greeting
+    )
+
+    refused_cost = 1000 * 3.0 / 1e6  # the refused sonnet call: 1000 input tokens
+    answered = (10 * 3.0 + 5 * 15.0) / 1e6
+    assert after_free == pytest.approx((10 * 5.0 + 5 * 25.0) / 1e6)  # only the fallback's answer
+    assert budget.spent() - after_free == pytest.approx(refused_cost + answered)
 
 
 def test_a_refusal_is_never_cached(tmp_path: Path) -> None:
     database = tmp_path / "book.sqlite"
     with pytest.raises(ModelRefusedError):
-        LLM(Refusing(refusals=99), database, max_attempts=1).call(make_request(), Greeting)
+        LLM(Refusing(always), database, max_attempts=1).call(make_request(), Greeting)
 
-    assert LLM(Refusing(refusals=0), database).call(make_request(), Greeting).output.text == "hello"
+    assert (
+        LLM(Refusing(lambda r, n: False), database).call(make_request(), Greeting).output.text
+        == "hello"
+    )
