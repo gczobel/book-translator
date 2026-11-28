@@ -137,11 +137,13 @@ def _extraction(db: sqlite3.Connection, workspace: Path, llm: LLM, progress: Pro
             continue
         tick.begin(index, len(chapters))
         text = "\n".join(source.encode_block(b.id).text for s in chapter.scenes for b in s.blocks)
-        result = llm.call(extraction_request(STAGE_MODELS["analysis"], text), Extraction)
+        if text.strip():
+            extraction = llm.call(extraction_request(STAGE_MODELS["analysis"], text), Extraction)
+            found = extraction.output
+        else:  # a cover or an image page: nothing to extract, and nothing to ask the model
+            found = Extraction(names=[], places=[], phrases=[])
         with db:
-            db.execute(
-                "insert into extractions values (?, ?)", (index, result.output.model_dump_json())
-            )
+            db.execute("insert into extractions values (?, ?)", (index, found.model_dump_json()))
         tick(index + 1, len(chapters))
     _set_status(db, "extraction", "done")
     progress.end("extraction")
