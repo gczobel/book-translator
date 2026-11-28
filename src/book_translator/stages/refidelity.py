@@ -62,7 +62,7 @@ def recheck(
         unresolved: list[Edit] = []
         for round_ in range(allowed + 1):
             request = review_request(STAGE, PROMPT_VERSION, model, scene, targets, bible, encoded)
-            schema = review_schema(scene.ids, targets, encoded, bible)
+            schema = review_schema(scene.ids, targets, encoded, bible, strict=True)
             edits = llm.call(request, schema).output.edits
             if round_ == allowed:
                 unresolved = edits

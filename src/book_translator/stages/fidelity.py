@@ -3,8 +3,9 @@
 The reviewer returns edits (target block, old text, new text, reason, category) for omissions,
 additions, meaning drift, flattened tense or free indirect speech and wrong forms of address.
 An edit that cannot be applied exactly, breaks inline codes, changes a locked motif or a glossary
-rendering, or brings in a banned variant makes the whole answer invalid, so the call is retried.
-Edits are applied in one step per scene and recorded for the quality report.
+rendering, or brings in a banned variant is dropped and recorded with its reason; the other edits
+of the answer are kept. Edits are applied in one step per scene and recorded for the quality
+report.
 """
 
 import json
@@ -14,7 +15,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, get_args
 
-from pydantic import BaseModel, BeforeValidator, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, PrivateAttr, model_validator
 
 from book_translator.bible import Bible
 from book_translator.epub import Epub
@@ -70,8 +71,21 @@ class Edit(BaseModel):
     category: Category
 
 
+@dataclass(frozen=True)
+class Dropped:
+    """An edit left out of a review, and why."""
+
+    edit: Edit
+    why: str
+
+
 class Review(BaseModel):
     edits: list[Edit] = []
+    _dropped: list[Dropped] = PrivateAttr(default_factory=list)
+
+    @property
+    def dropped(self) -> list[Dropped]:
+        return self._dropped
 
 
 @dataclass(frozen=True)
@@ -94,6 +108,11 @@ def create_tables(db: sqlite3.Connection) -> None:
         "create table if not exists fidelity_edits (id integer primary key autoincrement,"
         " block text not null, position integer not null, old text not null, new text not null,"
         " reason text not null, category text not null)"
+    )
+    db.execute(
+        "create table if not exists fidelity_dropped (id integer primary key autoincrement,"
+        " block text not null, position integer not null, old text not null, new text not null,"
+        " why text not null)"
     )
 
 
@@ -133,8 +152,11 @@ def review_schema(
     targets: dict[str, dict[int, str]],
     encoded: dict[str, EncodedBlock],
     bible: Bible,
+    strict: bool = False,
 ) -> type[Review]:
-    """The review's schema for this scene: every edit applicable, legal and within the bible."""
+    """The review's schema for this scene: the edits that apply, are legal and stay within the
+    bible are kept; the others are listed as dropped. A strict schema rejects the whole answer
+    instead, so the call is retried."""
 
     class SceneReview(Review):
         @model_validator(mode="before")
@@ -156,16 +178,27 @@ def review_schema(
         @model_validator(mode="after")
         def _applicable(self) -> "SceneReview":
             result = {i: dict(t) for i, t in targets.items()}
+            kept: list[Edit] = []
+            dropped: list[Dropped] = []
             for edit in self.edits:
-                if edit.block not in ids:
-                    raise ValueError(f"edit for a block outside the scene: {edit.block}")
-                _apply(edit, result[edit.block], bible)
-            for edit in self.edits:
-                pieces = [result[edit.block][p] for p in sorted(result[edit.block])]
                 try:
-                    encoded[edit.block].validate_pieces(pieces)
-                except InlineCodeError as exc:
-                    raise ValueError(f"block {edit.block}: {exc}") from exc
+                    if edit.block not in ids:
+                        raise ValueError(f"edit for a block outside the scene: {edit.block}")
+                    texts = dict(result[edit.block])
+                    _apply(edit, texts, bible)
+                    try:
+                        encoded[edit.block].validate_pieces([texts[p] for p in sorted(texts)])
+                    except InlineCodeError as exc:
+                        raise ValueError(f"block {edit.block}: {exc}") from exc
+                except ValueError as exc:
+                    dropped.append(Dropped(edit, str(exc)))
+                    continue
+                result[edit.block] = texts
+                kept.append(edit)
+            if strict and dropped:
+                raise ValueError(dropped[0].why)
+            self.edits = kept
+            self._dropped = dropped
             return self
 
     return SceneReview
@@ -232,6 +265,18 @@ def review(
         request = review_request("fidelity", PROMPT_VERSION, model, scene, targets, bible, encoded)
         result = llm.call(request, review_schema(scene.ids, targets, encoded, bible)).output
         with db:
+            for dropped in result.dropped:
+                db.execute(
+                    "insert into fidelity_dropped (block, position, old, new, why)"
+                    " values (?, ?, ?, ?, ?)",
+                    (
+                        dropped.edit.block,
+                        dropped.edit.position,
+                        dropped.edit.old,
+                        dropped.edit.new,
+                        dropped.why,
+                    ),
+                )
             for edit in result.edits:
                 text = str(
                     db.execute(
