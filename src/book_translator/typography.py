@@ -55,6 +55,7 @@ def _requote(text: str) -> tuple[str, int] | None:
     quote closes what was never opened."""
     out: list[str] = []
     depth = 0
+    single: list[bool] = []  # per open quote: opened as a single quote, so ’ may close it
     for index, char in enumerate(text):
         if char not in _QUOTE_CHARS:
             out.append(char)
@@ -64,15 +65,20 @@ def _requote(text: str) -> tuple[str, int] | None:
         if char in "'’" and before.isalnum() and after.isalnum():
             out.append("’")  # an apostrophe
             continue
+        if char in "'’" and before.isalpha() and not (single and single[-1]):
+            out.append("’")  # an elision at the end of a word (na’, to’), no single quote open
+            continue
         if char in "\"'" and before.isdigit():
             out.append(char)  # Q2: a measure (52° 2' 20")
             continue
         if char == "»" and index == 0:
             out.append(char)  # Q6: a continuation paragraph opens with a closing guillemet
             depth = 1
+            single = [False]
             continue
         if char in "«“‘" or (char in "\"'" and (not before or before in _OPENERS)):
             depth += 1
+            single.append(char in "'‘")
             out.append(_LEVELS[min(depth, 3) - 1][0])
             continue
         if depth == 0:
@@ -82,6 +88,7 @@ def _requote(text: str) -> tuple[str, int] | None:
             tail = out.pop() + tail
         out.append(_LEVELS[min(depth, 3) - 1][1] + tail)
         depth -= 1
+        single.pop()
     return "".join(out), depth
 
 

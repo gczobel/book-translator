@@ -235,3 +235,20 @@ def test_a_question_continuing_after_an_ellipsis_keeps_its_one_opener(
     for text in cases:
         assert normalised(ws, text, adapter, capsys) == text
         assert (BLOCK, "inverted_marks") not in findings(ws)
+
+
+def test_apostrophes_in_slurred_speech_are_not_reported_as_unpaired_quotes(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+    cases = [
+        "—No hay na’ de damas por aquí, dijo.",
+        "—P’a un asesino es muy poco —dijo.",
+        "—Estaba to’… cansado, ¿sabes?",
+        "—Vamos pa’l pueblo ahora mismo.",
+        "Se lo dio to’ y se fue pa’ casa.",
+        "Se lo dio to' y se fue pa' casa.",
+    ]
+    for text in cases:
+        normalised(ws, text, adapter, capsys)
+        assert (BLOCK, "quotes") not in findings(ws), text
