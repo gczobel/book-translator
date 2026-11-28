@@ -141,8 +141,10 @@ def test_a_choice_that_is_not_a_candidate_is_refused_and_the_tk_stays_open(
     ws = stopped_at_gate(tmp_path, ResolveAdapter([tk()], unsure))
     edit_choice(ws, "TK-1", "algo inventado")
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exit_:
         main(["approve", str(ws)])
+
+    assert "--choices" in str(exit_.value)  # this card takes free text, but only from that file
 
     (row,) = tks_of(ws)
     assert row["resolution"] is None

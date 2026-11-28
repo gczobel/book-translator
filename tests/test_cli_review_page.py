@@ -2,6 +2,8 @@
 
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +78,19 @@ def test_the_page_has_no_innerhtml_so_card_text_is_never_parsed_as_markup() -> N
     assert "innerHTML" not in SCRIPT
     assert "outerHTML" not in SCRIPT
     assert "insertAdjacentHTML" not in SCRIPT
+
+
+def test_clearing_the_own_wording_box_tells_the_reader_the_card_is_back_on_its_recommendation(
+    tmp_path: Path,
+) -> None:
+    from book_translator.review_page import SCRIPT
+
+    assert "back on its recommendation" in SCRIPT
+    node = shutil.which("node")
+    if node:  # the script must at least parse
+        script = tmp_path / "page.js"
+        script.write_text(SCRIPT)
+        subprocess.run([node, "--check", str(script)], check=True)
 
 
 def test_the_page_builder_escapes_its_title_itself() -> None:

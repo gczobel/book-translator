@@ -75,12 +75,13 @@ def read_choices(db: sqlite3.Connection, path: Path, gate: str) -> dict[str, str
     choice that is not one of the card's options.
     """
     cards = {
-        row[0]: (json.loads(row[1]), row[2])
+        row[0]: (json.loads(row[1]), row[2], bool(row[3]))
         for row in db.execute(
-            "select id, options, recommended from review_cards where gate = ?", (gate,)
+            "select id, options, recommended, free_text from review_cards where gate = ?",
+            (gate,),
         )
     }
-    choices = {id_: recommended for id_, (_, recommended) in cards.items()}
+    choices = {id_: recommended for id_, (_, recommended, _) in cards.items()}
     seen: set[str] = set()
     for card in _card_nodes(path):
         fields = {k.value: v for k, v in card.value if isinstance(k, yaml.ScalarNode)}
@@ -99,9 +100,16 @@ def read_choices(db: sqlite3.Connection, path: Path, gate: str) -> dict[str, str
             and (choice.tag.endswith(":null") or choice.value == "")
         ):
             continue
-        options = cards[id_][0]
+        options, _, free_text = cards[id_]
         if not isinstance(choice, yaml.ScalarNode) or choice.value not in options:
-            raise _error(path, choice, f"card {id_!r}: choice must be one of: {', '.join(options)}")
+            hint = (
+                "; your own wording goes in a choices file (approve --choices), not here"
+                if free_text
+                else ""
+            )
+            raise _error(
+                path, choice, f"card {id_!r}: choice must be one of: {', '.join(options)}{hint}"
+            )
         choices[id_] = choice.value
     return choices
 
