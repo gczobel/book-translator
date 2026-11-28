@@ -1,12 +1,14 @@
 """S4: resolve each TK with the bible and wider context, escalating the ones only a human can.
 
 A TK is escalated, and stays open (no resolution, no resolver), when the resolver's confidence is
-below the configured threshold, or when its scope is recurring: a term that recurs through the
+below the configured threshold, when its choice carries a note in parentheses instead of plain
+text, or when its scope is recurring: a term that recurs through the
 book is decided once, by the human, at the TK gate. Every other TK gets the resolver's choice,
 recorded with resolver `auto`, and the provisional rendering in the draft is replaced by it.
 """
 
 import json
+import re
 import sqlite3
 from typing import Annotated
 
@@ -24,8 +26,16 @@ PROMPT_VERSION = "tk-resolution-v1"
 CONTEXT_BLOCKS = 8
 _PROMPT = (
     "Resolve the TK: choose the rendering that fits the bible and the surrounding text best. "
-    "You may pick a candidate or give a better rendering. Say how confident you are."
+    "You may pick a candidate or give a better rendering. Say how confident you are. "
+    "The resolution is pasted into the sentence as is: give only the target-language text, "
+    "never a note or description in parentheses; put any explanation in the reason."
 )
+_PARENTHETICAL = re.compile(r"\([^)]*\)")
+
+
+def has_note(rendering: str, excerpt: str) -> bool:
+    """A parenthetical in the rendering that is not in the source text is a note, not text."""
+    return any(p not in excerpt for p in _PARENTHETICAL.findall(rendering))
 
 
 class Resolution(BaseModel):
@@ -86,7 +96,9 @@ def resolve(
                 source_text=json.dumps({"tk": card, "context": texts}),
             )
             chosen = llm.call(request, Resolution).output
-            escalate = chosen.confidence < TK_CONFIDENCE_THRESHOLD
+            escalate = chosen.confidence < TK_CONFIDENCE_THRESHOLD or has_note(
+                chosen.resolution, row["excerpt"]
+            )
         with db:
             if chosen is not None and not escalate:
                 db.execute(
