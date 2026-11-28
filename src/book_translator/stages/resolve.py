@@ -62,6 +62,7 @@ def resolve(
     finally:
         db.row_factory = None
     for index, row in enumerate(rows):
+        progress.begin(index, len(rows))
         escalate = row["scope"] == "recurring"
         chosen: Resolution | None = None
         if not escalate:

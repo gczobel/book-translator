@@ -159,6 +159,7 @@ def draft(
     for index, passage in enumerate(all_passages):
         if passage.ids[0] in done:
             continue
+        progress.begin(index, len(all_passages))
         encoded = {i: source.encode_block(i) for i in passage.ids}
         shown = " ".join(text_of[i] for i in (*passage.before, *passage.ids, *passage.after))
         targets = {

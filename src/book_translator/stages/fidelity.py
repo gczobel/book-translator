@@ -226,6 +226,7 @@ def review(
     for index, scene in enumerate(all_scenes):
         if scene.ids[0] in done:
             continue
+        progress.begin(index, len(all_scenes))
         targets = scene_targets(db, scene)
         encoded = {i: source.encode_block(i) for i in scene.ids}
         request = review_request("fidelity", PROMPT_VERSION, model, scene, targets, bible, encoded)

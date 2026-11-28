@@ -100,6 +100,7 @@ def polish(
     for index, scene in enumerate(all_scenes):
         if scene.ids[0] in done:
             continue
+        progress.begin(index, len(all_scenes))
         targets: dict[str, dict[int, str]] = defaultdict(dict)
         for block, position, text in db.execute(
             "select source, position, text from targets order by source, position"
