@@ -105,7 +105,54 @@ def answering(block: str, answers: list[dict[str, Any]]) -> Reviewer:
     return review
 
 
-def test_an_edit_that_would_change_a_locked_motif_is_retried(tmp_path: Path) -> None:
+def answering_all(block: str, answers: list[dict[str, Any]]) -> Reviewer:
+    """For the scene holding `block`, all of `answers` in one answer; other scenes need none."""
+
+    def review(scene: dict[str, Any], attempt: int) -> dict[str, Any]:
+        return {"edits": answers if in_scene(scene, block) else []}
+
+    return review
+
+
+def test_a_bad_edit_is_dropped_and_the_good_ones_of_the_same_answer_are_kept(
+    tmp_path: Path,
+) -> None:
+    block = source_ids()[1]
+
+    def review(scene: dict[str, Any], attempt: int) -> dict[str, Any]:
+        if not in_scene(scene, block):
+            return {"edits": []}
+        return {"edits": [edit(block, "not there", "x"), edit(block, "quiet", "calm")]}
+
+    adapter = FidelityAdapter(review)
+    ws = run_to_the_end(tmp_path, adapter)
+
+    assert target_text(ws, block) == "It was a calm evening."
+    assert query(ws, "select old, new from fidelity_edits") == [("quiet", "calm")]
+    assert query(ws, "select block, position, old, new from fidelity_dropped") == [
+        (block, 0, "not there", "x")
+    ]
+    why = query(ws, "select why from fidelity_dropped")[0][0]
+    assert "is not in the target block" in why
+    assert len(adapter.fidelity_requests) == len(scenes())  # one call per scene, no retry
+
+
+def test_an_answer_with_only_bad_edits_changes_nothing_and_the_run_goes_on(
+    tmp_path: Path,
+) -> None:
+    block = source_ids()[1]
+    answers = [edit(block, "not there", "x"), edit(block, "nor here", "y")]
+    adapter = FidelityAdapter(answering_all(block, answers))
+
+    ws = run_to_the_end(tmp_path, adapter)
+
+    assert target_text(ws, block) == "It was a quiet evening."
+    assert query(ws, "select id from fidelity_edits") == []
+    assert len(query(ws, "select old from fidelity_dropped")) == 2
+    assert len(query(ws, "select first_block from reviewed_scenes")) == len(scenes())
+
+
+def test_an_edit_that_would_change_a_locked_motif_is_dropped(tmp_path: Path) -> None:
     block = source_ids()[1]
     answers = [
         edit(block, "quiet evening", "calm night"),
@@ -113,13 +160,15 @@ def test_an_edit_that_would_change_a_locked_motif_is_retried(tmp_path: Path) -> 
     ]
     motifs = [{"name": "quiet evening", "locked_rendering": "quiet evening"}]
 
-    ws = run_to_the_end(tmp_path, FidelityAdapter(answering(block, answers), motifs=motifs))
+    ws = run_to_the_end(tmp_path, FidelityAdapter(answering_all(block, answers), motifs=motifs))
 
     assert target_text(ws, block) == "It was a quiet night."
     assert [r[0] for r in query(ws, "select category from fidelity_edits")] == ["omission"]
+    assert [r[0] for r in query(ws, "select old from fidelity_dropped")] == ["quiet evening"]
+    assert "locked rendering" in query(ws, "select why from fidelity_dropped")[0][0]
 
 
-def test_an_edit_that_changes_a_glossary_rendering_or_brings_a_banned_variant_is_retried(
+def test_an_edit_that_changes_a_glossary_rendering_or_brings_a_banned_variant_is_dropped(
     tmp_path: Path,
 ) -> None:
     block = source_ids()[1]
@@ -137,19 +186,23 @@ def test_an_edit_that_changes_a_glossary_rendering_or_brings_a_banned_variant_is
         edit(block, "quiet", "calm"),
     ]
 
-    ws = run_to_the_end(tmp_path, FidelityAdapter(answering(block, answers), glossary=glossary))
+    ws = run_to_the_end(tmp_path, FidelityAdapter(answering_all(block, answers), glossary=glossary))
 
     assert target_text(ws, block) == "It was a calm evening."
+    assert [r[0] for r in query(ws, "select new from fidelity_dropped order by id")] == [
+        "night",
+        "dusk",
+    ]
 
 
-def test_an_edit_whose_old_text_is_not_in_the_target_is_retried(tmp_path: Path) -> None:
+def test_an_edit_whose_old_text_is_not_in_the_target_is_dropped(tmp_path: Path) -> None:
     block = source_ids()[1]
     answers = [
         edit(block, "not there", "x"),
         edit(block, "was", "seemed", "flattened tense or free indirect speech"),
     ]
 
-    ws = run_to_the_end(tmp_path, FidelityAdapter(answering(block, answers)))
+    ws = run_to_the_end(tmp_path, FidelityAdapter(answering_all(block, answers)))
 
     assert target_text(ws, block) == "It seemed a quiet evening."
 
@@ -166,7 +219,7 @@ def test_an_old_text_quoted_with_different_spacing_is_found_in_the_target(tmp_pa
     assert query(ws, "select old from fidelity_edits") == [("was a quiet",)]
 
 
-def test_an_edit_that_breaks_inline_codes_is_retried(tmp_path: Path) -> None:
+def test_an_edit_that_breaks_inline_codes_is_dropped(tmp_path: Path) -> None:
     source = open_epub(EPUB)
     marked = next(i for i in source_ids() if '<pc id="1">' in source.encode_block(i).text)
     text = source.encode_block(marked).text
@@ -175,9 +228,10 @@ def test_an_edit_that_breaks_inline_codes_is_retried(tmp_path: Path) -> None:
         edit(marked, text, text + " Mas.", "omission"),
     ]
 
-    ws = run_to_the_end(tmp_path, FidelityAdapter(answering(marked, answers)))
+    ws = run_to_the_end(tmp_path, FidelityAdapter(answering_all(marked, answers)))
 
     assert target_text(ws, marked) == text + " Mas."
+    assert len(query(ws, "select id from fidelity_dropped")) == 1
 
 
 def test_a_wrong_form_of_address_is_fixed_in_the_right_target_block(tmp_path: Path) -> None:
