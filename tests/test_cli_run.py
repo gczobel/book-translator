@@ -10,7 +10,6 @@ from book_translator import main
 from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
 from book_translator.llm import LLMRequest, RawAnswer, request_key
-from book_translator.pydantic_ai_adapter import PydanticAIAdapter
 from book_translator.replay import ReplayAdapter
 from book_translator.stages.extract import extraction_request
 
@@ -210,7 +209,46 @@ def test_run_builds_the_production_adapter_when_the_key_is_set(
 
     main(["run", str(workspace)])
 
-    assert isinstance(built[0], PydanticAIAdapter)
+    assert built[0] is not None
+
+
+def test_run_asks_for_the_key_only_when_the_model_is_called(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    built: list[object] = []
+
+    def fake_run(
+        path: Path, adapter: object, search: object = None, progress: object = None
+    ) -> None:
+        built.append(adapter)  # a run with nothing left for the model never calls it
+
+    monkeypatch.setattr("book_translator.cli.run", fake_run)
+
+    main(["run", str(workspace)])
+
+    assert len(built) == 1
+
+
+def test_the_production_adapter_is_built_on_the_first_call_with_the_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    calls: list[str] = []
+
+    class Fake:
+        def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+            calls.append(key)
+            return RawAnswer("{}")
+
+    monkeypatch.setattr("book_translator.cli.PydanticAIAdapter", Fake)
+    from book_translator.cli import _production_adapter
+
+    adapter = _production_adapter()
+    assert calls == []
+    adapter.complete(LLMRequest("s", "v", "m", "p", "", ""), "k", 1)
+
+    assert calls == ["k"]
 
 
 def test_run_refuses_a_folder_that_is_not_a_workspace_without_creating_a_database(

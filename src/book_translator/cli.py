@@ -26,7 +26,13 @@ from book_translator.export import REPORT_NAME, ExportError, ValidationFailedErr
 from book_translator.fonts import FontCoverageError
 from book_translator.gates import GateError, approve_waiting_gate
 from book_translator.inline import InlineCodeError
-from book_translator.llm import Adapter, InvalidOutputError, ModelRefusedError
+from book_translator.llm import (
+    Adapter,
+    InvalidOutputError,
+    LLMRequest,
+    ModelRefusedError,
+    RawAnswer,
+)
 from book_translator.progress import Progress
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
 from book_translator.qa import WaiverError, print_report, waive
@@ -252,13 +258,25 @@ def _evaluate(
     print(f"Quality report: {out}\nReadable copy: {path / REPORT_MD}")
 
 
+class _ProductionAdapter:
+    """The pydantic-ai adapter, built on the first model call: a run that has nothing left for
+    the model to do needs no key."""
+
+    def __init__(self) -> None:
+        self._adapter: Adapter | None = None
+
+    def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
+        if self._adapter is None:
+            providers = sorted({model.split(":", 1)[0] for model in STAGE_MODELS.values()})
+            missing = [PROVIDER_KEYS[p] for p in providers if not os.environ.get(PROVIDER_KEYS[p])]
+            if missing:
+                sys.exit(f"error: set {', '.join(missing)} in the environment to call the LLM")
+            self._adapter = PydanticAIAdapter()
+        return self._adapter.complete(request, key, attempt)
+
+
 def _production_adapter() -> Adapter:
-    """The pydantic-ai adapter; each provider's key must be in the environment."""
-    providers = sorted({model.split(":", 1)[0] for model in STAGE_MODELS.values()})
-    missing = [PROVIDER_KEYS[p] for p in providers if not os.environ.get(PROVIDER_KEYS[p])]
-    if missing:
-        sys.exit(f"error: set {', '.join(missing)} in the environment to call the LLM")
-    return PydanticAIAdapter()
+    return _ProductionAdapter()
 
 
 def _init(args: argparse.Namespace) -> None:
