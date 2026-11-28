@@ -2,15 +2,52 @@
 
 import sys
 from collections.abc import Callable
+from typing import Protocol
 
 from book_translator.budget import Budget
 
-Tick = Callable[[int, int], None]
-"""Called by a stage after each finished unit of work: (units done so far, units in all)."""
+
+class Tick(Protocol):
+    """What a stage reports to. `begin` is called before each unit it is about to work on, with
+    its place (0-based) and the number of units in all; the first call of a run says where the
+    work starts. The call itself comes after each finished unit: (units done so far, in all)."""
+
+    def __call__(self, done: int, total: int) -> None: ...
+
+    def begin(self, index: int, total: int) -> None: ...
 
 
-def no_tick(done: int, total: int) -> None:
+class _NoTick:
     """The tick of a stage run without a reporter."""
+
+    def __call__(self, done: int, total: int) -> None:
+        pass
+
+    def begin(self, index: int, total: int) -> None:
+        pass
+
+
+no_tick: Tick = _NoTick()
+
+
+class _Unit:
+    def __init__(self, say: Callable[[str], None], stage: str, kind: str, spend: Callable[[], str]):
+        self._say = say
+        self._stage = stage
+        self._kind = kind
+        self._spend = spend
+        self._begun = False
+
+    def begin(self, index: int, total: int) -> None:
+        if self._begun:
+            return
+        self._begun = True
+        where = f"{self._kind} {index + 1}/{total}"
+        verb = "starting" if index == 0 else "resuming at"
+        self._say(f"[{self._stage}] {verb} {where}")
+
+    def __call__(self, done: int, total: int) -> None:
+        self._say(f"[{self._stage}] {self._kind} {done}/{total} done{self._spend()}")
 
 
 class Progress:
@@ -37,12 +74,9 @@ class Progress:
         self._say(f"[{stage}] skipped (nothing left to do)")
 
     def unit(self, stage: str, kind: str) -> Tick:
-        """A tick that prints `[stage] kind 3/10 done  ($0.12 of $3.00)`."""
-
-        def tick(done: int, total: int) -> None:
-            self._say(f"[{stage}] {kind} {done}/{total} done{self._spend()}")
-
-        return tick
+        """A tick that prints `[stage] resuming at kind 3/10` before the first unit of the run
+        and `[stage] kind 3/10 done  ($0.12 of $3.00)` after each one."""
+        return _Unit(self._say, stage, kind, self._spend)
 
     def _spend(self) -> str:
         if self._budget is None or self._quiet:

@@ -311,6 +311,28 @@ def test_a_resumed_run_says_which_stages_are_skipped(
     assert again.calls == 0
 
 
+def test_a_stage_says_where_it_starts_before_its_first_call(
+    workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    capsys.readouterr()
+    main(["run", str(workspace)], adapter=CountingAdapter(recordings(FIXTURES / "plain.epub")))
+
+    lines = progress_lines(capsys)
+    first = lines.index("[extraction] starting chapter 1/2")
+    assert first < lines.index(next(x for x in lines if x.startswith("[extraction] chapter 1/2")))
+    assert sum(x.startswith("[extraction] starting") for x in lines) == 1
+
+
+def test_a_resumed_stage_says_which_unit_it_resumes_at(capsys: pytest.CaptureFixture[str]) -> None:
+    from book_translator.progress import Progress
+
+    tick = Progress(None, quiet=False).unit("fidelity", "scene")
+    tick.begin(7, 11)
+    tick.begin(8, 11)  # only the first unit of a run is announced
+
+    assert capsys.readouterr().err.splitlines() == ["[fidelity] resuming at scene 8/11"]
+
+
 def test_extraction_reports_each_chapter_with_the_spend_against_the_cap(
     workspace: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -320,7 +342,9 @@ def test_extraction_reports_each_chapter_with_the_spend_against_the_cap(
         adapter=costly(recordings(FIXTURES / "plain.epub")),
     )
 
-    lines = [x for x in progress_lines(capsys) if x.startswith("[extraction]") and "/" in x]
+    lines = [
+        x for x in progress_lines(capsys) if x.startswith("[extraction] chapter") and "done" in x
+    ]
     assert [("1/2" in x, "2/2" in x) for x in lines] == [(True, False), (False, True)]
     assert "$0.01 of $3.00" in lines[0]
     assert "$0.02 of $3.00" in lines[1]

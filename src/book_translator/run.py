@@ -135,6 +135,7 @@ def _extraction(db: sqlite3.Connection, workspace: Path, llm: LLM, progress: Pro
     for index, chapter in enumerate(chapters):
         if index in done:
             continue
+        tick.begin(index, len(chapters))
         text = "\n".join(source.encode_block(b.id).text for s in chapter.scenes for b in s.blocks)
         result = llm.call(extraction_request(STAGE_MODELS["analysis"], text), Extraction)
         with db:
