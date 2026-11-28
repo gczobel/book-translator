@@ -64,3 +64,6 @@ uv sync
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 ```
+
+The `epubcheck` test (`pytest -m epubcheck`) exports the e2e fixture and validates it with the real
+epubcheck; it is skipped unless `EPUBCHECK` points at the `.jar` (see "Installing epubcheck").
