@@ -47,8 +47,9 @@ def export(workspace: Path, validator: Validator | None = None) -> Path:
         credits = _credits(source)  # before the edits replace the original title
         titles = _chapter_titles(db, source)  # before the rebuild replaces the source headings
         titles |= _section_titles(source.book(), target)
+        description = _description(db, source, _metadata(source, "description"))
         _rebuild(db, source)
-        _synchronize(db, source, target, titles)
+        _synchronize(db, source, target, titles, description)
         add_credits_page(source, credits)
         remove_branding(source, EPUBLIBRE)
     finally:
@@ -122,6 +123,22 @@ def _chapter_titles(db: sqlite3.Connection, source: Epub) -> dict[str, str]:
     return titles
 
 
+def _description(db: sqlite3.Connection, source: Epub, description: str) -> str | None:
+    """The package description in the target language: the translation of the block of the book
+    that carries the same text (a synopsis page), or None if no block does."""
+    if not description.strip():
+        return None
+    targets = _targets(db)
+    book = source.book()
+    parts = [*(p.blocks for p in (*book.front, *book.back))]
+    parts += [[b for s in c.scenes for b in s.blocks] for c in book.chapters]
+    for blocks in parts:
+        for block in blocks:
+            if block.id in targets and _squeezed(block.text) == _squeezed(description):
+                return _label(" ".join(targets[block.id]))
+    return None
+
+
 _SPANISH_SECTIONS = {  # the labels of an ePubLibre base's fixed sections
     "cover": "Cubierta",
     "title": "Título",
@@ -148,7 +165,13 @@ def _section_titles(book: Book, target: str) -> dict[str, str]:
     }
 
 
-def _synchronize(db: sqlite3.Connection, source: Epub, target: str, titles: dict[str, str]) -> None:
+def _synchronize(
+    db: sqlite3.Connection,
+    source: Epub,
+    target: str,
+    titles: dict[str, str],
+    description: str | None,
+) -> None:
     row = db.execute(
         "select rendering from glossary where term = ?", (_metadata(source, "title"),)
     ).fetchone()
@@ -156,6 +179,7 @@ def _synchronize(db: sqlite3.Connection, source: Epub, target: str, titles: dict
         source,
         SyncEdits(
             title=str(row[0]) if row and row[0] else None,  # the book's established title
+            description=description,
             language=target,
             translator=f"book-translator {__version__}",
             chapter_titles=titles,
