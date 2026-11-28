@@ -60,10 +60,15 @@ def recheck(
         encoded = {i: source.encode_block(i) for i in scene.ids}
         applied: list[Edit] = []
         unresolved: list[Edit] = []
+        cannot_apply: dict[tuple[str, int, str, str], Edit] = {}
         for round_ in range(allowed + 1):
             request = review_request(STAGE, PROMPT_VERSION, model, scene, targets, bible, encoded)
-            schema = review_schema(scene.ids, targets, encoded, bible, strict=True)
-            edits = llm.call(request, schema).output.edits
+            schema = review_schema(scene.ids, targets, encoded, bible)
+            output = llm.call(request, schema).output
+            edits = output.edits
+            for dropped in output.dropped:
+                e = dropped.edit
+                cannot_apply[(e.block, e.position, e.old, e.new)] = e
             if round_ == allowed:
                 unresolved = edits
                 break
@@ -73,6 +78,7 @@ def recheck(
                 text = targets[edit.block][edit.position]
                 targets[edit.block][edit.position] = text.replace(edit.old, edit.new, 1)
             applied += edits
+        unresolved += cannot_apply.values()
         with db:
             for edit in applied:
                 text = str(

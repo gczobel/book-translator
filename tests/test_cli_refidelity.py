@@ -132,20 +132,32 @@ def test_a_scene_without_drift_is_checked_once_and_leaves_no_findings(tmp_path: 
     ]
 
 
-def test_a_correction_that_cannot_be_applied_is_retried(tmp_path: Path) -> None:
+def test_a_correction_that_cannot_be_applied_is_recorded_for_qa_and_the_others_kept(
+    tmp_path: Path,
+) -> None:
     block = source_ids()[1]
     polish = rewriting(block, [["It was a loud evening."]])
+    check = correcting(block, [[edit(block, "not there", "x"), edit(block, "loud", "quiet")]])
 
-    class Adapter(RecheckAdapter):
-        def complete(self, request: LLMRequest, key: str, attempt: int) -> RawAnswer:
-            if request.stage == STAGE and "loud evening" in request.source_text:
-                fix = "loud" if attempt else "not there"
-                return RawAnswer(json.dumps({"edits": [edit(block, fix, "quiet")]}))
-            return super().complete(request, key, attempt)
-
-    ws = run_to_the_end(tmp_path, Adapter(polish))
+    ws = run_to_the_end(tmp_path, RecheckAdapter(polish, check))
 
     assert target_text(ws, block) == "It was a quiet evening."
+    assert query(ws, "select stage, block, old, new from unresolved_findings") == [
+        (STAGE, block, "not there", "x")
+    ]
+
+
+def test_an_answer_with_only_corrections_that_cannot_be_applied_changes_nothing(
+    tmp_path: Path,
+) -> None:
+    block = source_ids()[1]
+    polish = rewriting(block, [["It was a loud evening."]])
+    check = correcting(block, [[edit(block, "not there", "x")]])
+
+    ws = run_to_the_end(tmp_path, RecheckAdapter(polish, check))
+
+    assert target_text(ws, block) == "It was a loud evening."
+    assert query(ws, "select old from unresolved_findings") == [("not there",)]
 
 
 def test_a_finished_recheck_is_not_run_again_and_calls_are_not_repeated(tmp_path: Path) -> None:

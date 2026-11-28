@@ -152,11 +152,9 @@ def review_schema(
     targets: dict[str, dict[int, str]],
     encoded: dict[str, EncodedBlock],
     bible: Bible,
-    strict: bool = False,
 ) -> type[Review]:
     """The review's schema for this scene: the edits that apply, are legal and stay within the
-    bible are kept; the others are listed as dropped. A strict schema rejects the whole answer
-    instead, so the call is retried."""
+    bible are kept; the others are listed as dropped."""
 
     class SceneReview(Review):
         @model_validator(mode="before")
@@ -195,8 +193,6 @@ def review_schema(
                     continue
                 result[edit.block] = texts
                 kept.append(edit)
-            if strict and dropped:
-                raise ValueError(dropped[0].why)
             self.edits = kept
             self._dropped = dropped
             return self
