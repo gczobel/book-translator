@@ -171,6 +171,9 @@ def inverted_marks(text: str) -> str:
         end = match.start()
         start = max(m.end() for m in _SEGMENT_START.finditer(text, 0, end))
         segment = text[start:end]
+        opener = _OPENER[match.group()]
+        if text[:start].count(opener) > text[:start].count(match.group()):
+            continue  # its opener is already there, before an ellipsis or full stop inside it
         first = segment.split(" ", 1)[0].lower() if segment else ""
         if (
             not segment
@@ -180,7 +183,7 @@ def inverted_marks(text: str) -> str:
             or text[end + 1 : end + 2] in ("?", "!")
         ):
             continue
-        text = text[:start] + _OPENER[match.group()] + text[start:]
+        text = text[:start] + opener + text[start:]
     return text
 
 

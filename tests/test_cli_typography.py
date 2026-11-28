@@ -222,3 +222,16 @@ def test_straight_quotes_continuing_in_the_next_paragraph_are_set_so_qa_can_pass
 
     assert target_text(ws, BLOCK) == "Dijo: «Algo largo que sigue en el párrafo siguiente."
     assert (BLOCK, "quotes") not in findings(ws)
+
+
+def test_a_question_continuing_after_an_ellipsis_keeps_its_one_opener(
+    book: tuple[Path, CountingAdapter], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws, adapter = book
+    cases = [
+        "¿Eso es… maquillaje?",
+        "¿Es una… modificación corporal o una construcción genética?",
+    ]
+    for text in cases:
+        assert normalised(ws, text, adapter, capsys) == text
+        assert (BLOCK, "inverted_marks") not in findings(ws)
