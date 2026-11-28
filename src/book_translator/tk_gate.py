@@ -22,7 +22,8 @@ from pathlib import Path
 from book_translator.bible import Bible, GlossaryEntry
 from book_translator.epub import open_epub
 from book_translator.review import Card
-from book_translator.stages.resolve import has_note, replace_provisional
+from book_translator.renderings import has_note
+from book_translator.stages.resolve import replace_provisional
 from book_translator.workspace import SOURCE_NAME
 
 TK_GATE = "tk"

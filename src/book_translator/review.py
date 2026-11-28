@@ -7,6 +7,7 @@ reader writes their answer under `choice`; an empty choice accepts the recommend
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -98,6 +99,14 @@ def read_choices(db: sqlite3.Connection, path: Path, gate: str) -> dict[str, str
     return choices
 
 
+@dataclass(frozen=True)
+class _StoredCard:
+    """What the choices file is checked against: a card's options and whether it takes free text."""
+
+    options: list[str]
+    free_text: bool
+
+
 def read_choices_file(db: sqlite3.Connection, path: Path, gate: str) -> dict[str, str]:
     """The choices in a JSON file {card id: choice}, checked against the gate's cards.
 
@@ -105,7 +114,7 @@ def read_choices_file(db: sqlite3.Connection, path: Path, gate: str) -> dict[str
     non-empty text goes). Raises ReviewError for anything else.
     """
     cards = {
-        row[0]: (json.loads(row[1]), bool(row[2]))
+        row[0]: _StoredCard(json.loads(row[1]), bool(row[2]))
         for row in db.execute(
             "select id, options, free_text from review_cards where gate = ?", (gate,)
         )
@@ -120,10 +129,11 @@ def read_choices_file(db: sqlite3.Connection, path: Path, gate: str) -> dict[str
     for id_, choice in loaded.items():
         if id_ not in cards:
             raise ReviewError(f"{path.name}: unknown card id {id_!r}")
-        options, free_text = cards[id_]
+        stored = cards[id_]
+        options = stored.options
         if not isinstance(choice, str) or not choice.strip():
             raise ReviewError(f"{path.name}: card {id_!r}: the choice must be non-empty text")
-        if choice not in options and not free_text:
+        if choice not in options and not stored.free_text:
             raise ReviewError(
                 f"{path.name}: card {id_!r}: choice must be one of: {', '.join(options)}"
             )
