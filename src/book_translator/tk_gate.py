@@ -21,6 +21,7 @@ from pathlib import Path
 
 from book_translator.bible import Bible, GlossaryEntry
 from book_translator.epub import open_epub
+from book_translator.renderings import has_note
 from book_translator.review import Card
 from book_translator.stages.resolve import replace_provisional
 from book_translator.workspace import SOURCE_NAME
@@ -60,7 +61,9 @@ def review_content(db: sqlite3.Connection) -> tuple[list[Card], dict[str, list[d
         db.row_factory = None
     cards: list[Card] = []
     summary: list[dict[str, str]] = []
+    first_seen: dict[str, sqlite3.Row] = {}  # per span: the earliest TK, settled or open
     for row in rows:
+        earlier = first_seen.setdefault(row["span"], row)
         if row["resolution"] is not None:
             summary.append(
                 {
@@ -77,6 +80,18 @@ def review_content(db: sqlite3.Connection) -> tuple[list[Card], dict[str, list[d
             if row["scope"] == "recurring"
             else "The resolver's recommendation; it was not sure enough to settle it alone."
         )
+        notes = [c["rendering"] for c in candidates if has_note(c["rendering"], row["excerpt"])]
+        if notes:
+            why += (
+                f" Careful, this looks like a note, not text for the sentence: {'; '.join(notes)}."
+            )
+        if earlier["id"] != row["id"]:
+            settled = (
+                f" (already settled to {earlier['resolution']!r})"
+                if earlier["resolution"] is not None
+                else ""
+            )
+            why += f" Same term as {earlier['id']}{settled}: decide it once."
         cards.append(
             TKCard(
                 id=row["id"],
@@ -84,6 +99,7 @@ def review_content(db: sqlite3.Connection) -> tuple[list[Card], dict[str, list[d
                 context=row["excerpt"],
                 options=[c["rendering"] for c in candidates],
                 recommended=row["recommendation"],
+                free_text=True,
                 why=why,
                 type=row["type"],
                 location=row["block"],
@@ -152,8 +168,9 @@ def _add_to_glossary(
             )
         )
         return
+    previous = [entry.rendering] if entry.rendering else []
     entry.rendering = rendering
-    entry.banned_variants = sorted({*entry.banned_variants, *banned})
+    entry.banned_variants = sorted({*entry.banned_variants, *banned, *previous} - {rendering})
 
 
 def _fix_earlier_chapters(

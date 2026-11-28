@@ -141,8 +141,10 @@ def test_a_choice_that_is_not_a_candidate_is_refused_and_the_tk_stays_open(
     ws = stopped_at_gate(tmp_path, ResolveAdapter([tk()], unsure))
     edit_choice(ws, "TK-1", "algo inventado")
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exit_:
         main(["approve", str(ws)])
+
+    assert "--choices" in str(exit_.value)  # this card takes free text, but only from that file
 
     (row,) = tks_of(ws)
     assert row["resolution"] is None
@@ -195,6 +197,75 @@ def test_a_resolved_recurring_tk_joins_the_glossary_and_earlier_chapters_follow(
     assert "tarde tranquila" in entry["banned_variants"]
 
 
+def test_two_tks_for_one_term_settled_differently_end_with_one_consistent_entry(
+    tmp_path: Path,
+) -> None:
+    first = recurring_in_chapter_two()
+    second = {**first, "block": source_ids()[4], "provisional": "Fin."}
+    ws = stopped_at_gate(tmp_path, ResolveAdapter([first, second], unsure))
+    edit_choice(ws, "TK-1", "tarde tranquila")
+    edit_choice(ws, "TK-2", "velada serena")
+
+    main(["approve", str(ws)])
+
+    (entry,) = [e for e in glossary_of(ws) if e["term"] == "quiet evening"]
+    assert entry["rendering"] == "velada serena"
+    assert "velada serena" not in entry["banned_variants"]
+    assert "tarde tranquila" in entry["banned_variants"]
+
+
+def test_a_second_tk_for_the_same_term_points_at_the_first_so_the_reader_decides_once(
+    tmp_path: Path,
+) -> None:
+    first = recurring_in_chapter_two()
+    second = {**first, "block": source_ids()[4], "provisional": "Fin."}
+
+    ws = stopped_at_gate(tmp_path, ResolveAdapter([first, second], unsure))
+
+    cards = {c["id"]: c for c in review(ws)["cards"]}
+    assert "Same term as" not in cards["TK-1"]["why"]
+    assert "Same term as TK-1" in cards["TK-2"]["why"]
+
+
+def test_a_tk_for_a_term_an_earlier_tk_settled_says_what_it_was_settled_to(
+    tmp_path: Path,
+) -> None:
+    first = tk(confidence=0.9)
+    second = {**first, "block": source_ids()[4], "provisional": "Fin."}
+
+    def sure_of_the_first(card: dict[str, Any]) -> dict[str, Any]:
+        return {**unsure(card), "confidence": 0.9 if card["id"] == "TK-1" else 0.1}
+
+    ws = stopped_at_gate(tmp_path, ResolveAdapter([first, second], sure_of_the_first))
+
+    (card,) = review(ws)["cards"]
+    assert card["id"] == "TK-2"
+    assert "Same term as TK-1" in card["why"]
+    assert "already settled to 'tarde tranquila'" in card["why"]
+
+
+def test_a_later_choice_bans_the_rendering_the_entry_had_before(tmp_path: Path) -> None:
+    first = recurring_in_chapter_two()
+    second = {
+        **first,
+        "block": source_ids()[4],
+        "provisional": "Fin.",
+        "candidates": [
+            {"rendering": "noche en calma", "reason": "plain"},
+            {"rendering": "velada serena", "reason": "literary"},
+        ],
+    }
+    ws = stopped_at_gate(tmp_path, ResolveAdapter([first, second], unsure))
+    edit_choice(ws, "TK-1", "noche en calma")
+    edit_choice(ws, "TK-2", "velada serena")
+
+    main(["approve", str(ws)])
+
+    (entry,) = [e for e in glossary_of(ws) if e["term"] == "quiet evening"]
+    assert entry["rendering"] == "velada serena"
+    assert {"tarde tranquila", "noche en calma"} <= set(entry["banned_variants"])
+
+
 def test_a_local_tk_does_not_touch_the_glossary(tmp_path: Path) -> None:
     ws = stopped_at_gate(tmp_path, ResolveAdapter([tk()], unsure))
     before = glossary_of(ws)
@@ -212,6 +283,19 @@ def test_the_open_tk_check_refuses_while_any_tk_is_open(tmp_path: Path) -> None:
     main(["approve", str(ws)])
     with sqlite3.connect(ws / "book.sqlite") as db:
         require_no_open_tks(db)
+
+
+def test_a_candidate_that_is_a_note_in_parentheses_is_flagged_on_the_card(
+    tmp_path: Path,
+) -> None:
+    noted = {"rendering": "ustedes (plural de cortesía/neutro)", "reason": "a description"}
+    candidates = [{"rendering": "ustedes", "reason": "plain"}, noted]
+    ws = stopped_at_gate(tmp_path, ResolveAdapter([tk(candidates=candidates)], unsure))
+
+    (card,) = review(ws)["cards"]
+
+    assert "ustedes (plural de cortesía/neutro)" in card["why"]
+    assert "note" in card["why"]
 
 
 def test_an_empty_string_choice_accepts_the_recommendation_like_a_missing_one(

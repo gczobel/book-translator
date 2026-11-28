@@ -197,3 +197,16 @@ def test_tk_resolution_waits_for_the_draft(tmp_path: Path) -> None:
     main(["run", str(ws)], adapter=adapter)
 
     assert adapter.resolve_requests == []
+
+
+def test_a_resolution_with_a_note_in_parentheses_is_not_pasted_into_the_text(
+    tmp_path: Path,
+) -> None:
+    noted = "tarde tranquila (plural de cortesía/neutro)"
+    ws = run_all(
+        tmp_path, ResolveAdapter([tk()], lambda c: {"resolution": noted, "confidence": 0.9})
+    )
+
+    (row,) = tks_of(ws)
+    assert row["resolution"] is None
+    assert noted not in target_text(ws, source_ids()[1])

@@ -1,7 +1,8 @@
 """S4: resolve each TK with the bible and wider context, escalating the ones only a human can.
 
 A TK is escalated, and stays open (no resolution, no resolver), when the resolver's confidence is
-below the configured threshold, or when its scope is recurring: a term that recurs through the
+below the configured threshold, when its choice carries a note in parentheses instead of plain
+text, or when its scope is recurring: a term that recurs through the
 book is decided once, by the human, at the TK gate. Every other TK gets the resolver's choice,
 recorded with resolver `auto`, and the provisional rendering in the draft is replaced by it.
 """
@@ -17,6 +18,7 @@ from book_translator.config import TK_CONFIDENCE_THRESHOLD
 from book_translator.epub import Epub
 from book_translator.llm import LLM, LLMRequest
 from book_translator.progress import Tick, no_tick
+from book_translator.renderings import has_note
 from book_translator.stages.context import bible_slice
 from book_translator.tolerance import percentage
 
@@ -24,7 +26,9 @@ PROMPT_VERSION = "tk-resolution-v1"
 CONTEXT_BLOCKS = 8
 _PROMPT = (
     "Resolve the TK: choose the rendering that fits the bible and the surrounding text best. "
-    "You may pick a candidate or give a better rendering. Say how confident you are."
+    "You may pick a candidate or give a better rendering. Say how confident you are. "
+    "The resolution is pasted into the sentence as is: give only the target-language text, "
+    "never a note or description in parentheses; put any explanation in the reason."
 )
 
 
@@ -86,7 +90,9 @@ def resolve(
                 source_text=json.dumps({"tk": card, "context": texts}),
             )
             chosen = llm.call(request, Resolution).output
-            escalate = chosen.confidence < TK_CONFIDENCE_THRESHOLD
+            escalate = chosen.confidence < TK_CONFIDENCE_THRESHOLD or has_note(
+                chosen.resolution, row["excerpt"]
+            )
         with db:
             if chosen is not None and not escalate:
                 db.execute(
