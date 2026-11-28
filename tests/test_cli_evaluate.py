@@ -277,3 +277,110 @@ def test_no_translation_stage_can_see_the_reference() -> None:
         and "book_translator.evaluate" in path.read_text()
     ]
     assert offenders == []
+
+
+class FakeComet:
+    """Scores each segment by how many words ours and the reference share; records what it got."""
+
+    def __init__(self) -> None:
+        self.seen: list[tuple[str, str, str]] = []
+
+    def score(self, triples: Sequence[tuple[str, str, str]]) -> list[float]:
+        self.seen = list(triples)
+        return [
+            len(set(hyp.split()) & set(ref.split())) / max(len(set(ref.split())), 1)
+            for _, hyp, ref in triples
+        ]
+
+
+class GlossEmbedder(FakeEmbedder):
+    """The fake embedder with a few Spanish words mapped to their English twins, so a source
+    block and its translation are close, as LaBSE makes them."""
+
+    TWINS = {
+        "tarde": "evening",
+        "tranquila": "quiet",
+        "ella": "she",
+        "dijo": "said",
+        "nada": "nothing",
+        "mañana": "morning",
+        "siguiente": "next",
+        "ruidosa": "loud",
+        "fue": "was",
+        "era": "was",
+        "una": "a",
+    }
+
+    def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        def twin(text: str) -> str:
+            words = [w.strip(".,;:!?") for w in text.lower().split()]
+            return " ".join(self.TWINS.get(w, w) for w in words)
+
+        return super().embed([twin(t) for t in texts])
+
+
+def evaluate_with_comet(ws: Path, reference: Path, comet: FakeComet) -> dict[str, Any]:
+    main(
+        ["evaluate", str(ws), "--reference", str(reference), "--comet"],
+        embedder=GlossEmbedder(),
+        comet=comet,
+    )
+    report: dict[str, Any] = json.loads((ws / REPORT).read_text())
+    return report
+
+
+def test_comet_scores_each_aligned_segment_against_its_source_and_reference(
+    exported: Path, tmp_path: Path
+) -> None:
+    ref = make_epub(
+        tmp_path / "ref.epub",
+        [("One", [*OURS[1]]), ("Two", ["La mañana siguiente fue muy ruidosa.", "El fin."])],
+    )
+    comet = FakeComet()
+
+    report = evaluate_with_comet(exported, ref, comet)
+
+    assert comet.seen, "COMET was given nothing"
+    assert all(src and hyp and reference for src, hyp, reference in comet.seen)
+    assert any(src.startswith("It was a quiet evening") for src, _, _ in comet.seen)
+    first, second = report["chapters"]
+    assert first["comet"] == 1.0 and 0.0 < second["comet"] < 1.0
+    assert report["comet_segments"] == len(comet.seen)
+    mean = sum(comet.score(comet.seen)) / len(comet.seen)
+    assert report["comet_overall"] == pytest.approx(mean, abs=1e-3)
+    readable = (exported / "quality-report.md").read_text()
+    assert "COMET overall:" in readable and "COMET 1.0" in readable
+    assert "not to judge one sentence" in readable
+
+
+def test_without_the_comet_flag_nothing_is_scored_and_the_report_has_no_comet(
+    exported: Path, tmp_path: Path
+) -> None:
+    ref = make_epub(tmp_path / "ref.epub", [("One", [*OURS[1]]), ("Two", [*OURS[2]])])
+    comet = FakeComet()
+
+    main(
+        ["evaluate", str(exported), "--reference", str(ref)],
+        embedder=FakeEmbedder(),
+        comet=comet,
+    )
+
+    assert comet.seen == []
+    report = json.loads((exported / REPORT).read_text())
+    assert "comet_overall" not in report
+    assert "comet" not in report["chapters"][0]
+
+
+def test_a_comet_that_cannot_start_stops_with_a_clear_message(
+    exported: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ref = make_epub(tmp_path / "ref.epub", [("One", [*OURS[1]]), ("Two", [*OURS[2]])])
+    monkeypatch.setenv("PATH", str(tmp_path / "nowhere"))
+
+    with pytest.raises(SystemExit) as stopped:
+        main(
+            ["evaluate", str(exported), "--reference", str(ref), "--comet"],
+            embedder=FakeEmbedder(),
+        )
+
+    assert "needs `uv`" in str(stopped.value)

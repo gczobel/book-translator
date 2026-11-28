@@ -57,6 +57,16 @@ which `export` finds on `PATH`. To use a different install, set `EPUBCHECK` to a
 `epubcheck.jar` path. To change the pinned version, edit `scripts/epubcheck.pin` (version and
 checksum together); CI can read the same file with `. scripts/epubcheck.pin`.
 
+## Scoring with COMET (local only)
+
+`book-translator evaluate WORKSPACE --reference REF.epub --comet` adds a COMET score per chapter
+and overall to the quality report. COMET needs older ML libraries than the `evaluate` extra, so it
+runs in its own throwaway environment that `uv` builds on the first use (Python 3.12, a pinned
+`unbabel-comet`, and a model of about 2 GB, about 6 GB of memory while it runs). Nothing else is
+needed. It never runs in CI, and the pin (`COMET_VERSION` in
+`src/book_translator/evaluate/comet.py`) is bumped by hand. Read the score as a way to compare
+chapters or versions, not to judge one sentence.
+
 ## Dev
 
 ```

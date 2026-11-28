@@ -54,6 +54,16 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"Output: {report['output']}  ",
         f"Reference: {report['reference']}  ",
         f"chrF overall: {report['chrf_overall']}  ",
+        *(
+            [
+                f"COMET overall: {report['comet_overall']} ({report['comet_segments']} segments)  ",
+                "COMET measures closeness to the reference. Use it to compare chapters or "
+                "versions, not to judge one sentence: valid wording that differs from the "
+                "reference scores lower.  ",
+            ]
+            if "comet_overall" in report
+            else []
+        ),
         "Evaluation mode: "
         + (
             "on (established-terminology lookups were off)"
@@ -61,14 +71,15 @@ def render_markdown(report: dict[str, Any]) -> str:
             else "OFF (established-terminology lookups were allowed: scores may be inflated)"
         ),
         "",
-        "## Per chapter (chrF)",
+        "## Per chapter (chrF" + (", COMET" if "comet_overall" in report else "") + ")",
         "",
     ]
     for chapter in report["chapters"]:
         refs = ", ".join(chapter["reference_titles"]) or "no counterpart"
+        comet = f", COMET {chapter['comet']}" if chapter.get("comet") is not None else ""
         lines.append(
             f"- {chapter['index']}. {chapter['title'] or '(untitled)'}: "
-            f"{chapter['chrf']} (reference: {refs})"
+            f"{chapter['chrf']}{comet} (reference: {refs})"
         )
     for title in report["unaligned_reference_chapters"]:
         lines.append(f"- reference chapter without a counterpart: {title}")
