@@ -99,6 +99,23 @@ def rendered(text: str, rendering: str) -> bool:
     return any(contains(text, wording) for wording in renderings(rendering))
 
 
+def occurrences(text: str, phrase: str) -> int:
+    """How many times `phrase` stands in `text`, as whole words, ignoring case."""
+    if not phrase:
+        return 0
+    return len(re.findall(rf"(?<!\w){re.escape(phrase)}(?!\w)", text, re.IGNORECASE))
+
+
+def rendered_count(text: str, rendering: str) -> int:
+    """How many times `text` carries `rendering`, in any of the wordings it allows. A wording
+    that is part of a longer one (`X` in `el X`) is not counted twice."""
+    wordings = sorted(renderings(rendering), key=len, reverse=True)
+    if not wordings:
+        return 0
+    pattern = "|".join(re.escape(w) for w in wordings)
+    return len(re.findall(rf"(?<!\w)(?:{pattern})(?!\w)", text, re.IGNORECASE))
+
+
 Check = Callable[[QAContext], list[Finding]]
 CHECKS: dict[str, Check] = {}
 
@@ -125,6 +142,9 @@ def glossary_renderings(context: QAContext) -> list[Finding]:
 
 @check("banned_variant")
 def banned_variants(context: QAContext) -> list[Finding]:
+    """A banned word is a finding where the source uses the term, unless the approved rendering
+    stands as often as the term does: the banned word then translates something else (`ghosts`
+    next to `phantasmata`)."""
     return [
         Finding("banned_variant", block, f"uses {variant!r}, banned for {entry.term!r}")
         for block in context.sources
@@ -132,6 +152,8 @@ def banned_variants(context: QAContext) -> list[Finding]:
         for variant in entry.banned_variants
         if contains(source_text(context, block), entry.term)
         and contains(target_text(context, block), variant)
+        and rendered_count(target_text(context, block), entry.rendering)
+        < occurrences(source_text(context, block), entry.term)
     ]
 
 
