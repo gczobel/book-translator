@@ -2,7 +2,15 @@
 
 from book_translator.bible import Bible, CastMember, GlossaryEntry, Motif
 from book_translator.inline import EncodedBlock
-from book_translator.qa import QAContext, banned_variants, glossary_renderings, motifs, names
+from book_translator.qa import (
+    QAContext,
+    banned_variants,
+    glossary_renderings,
+    motifs,
+    names,
+    numbers,
+    spoken_numbers,
+)
 
 
 def context(
@@ -128,3 +136,19 @@ def test_a_banned_variant_is_a_finding_only_where_the_source_uses_the_term() -> 
 
     assert banned_variants(elsewhere) == []
     assert len(banned_variants(there)) == 1
+
+
+def test_numbers_written_in_words_are_read_as_numbers() -> None:
+    assert spoken_numbers("cincuenta mil dólares") == {50000}
+    assert spoken_numbers("treinta y tres años y veintiún días") == {33, 21}
+    assert spoken_numbers("mil novecientos noventa y dos") == {1992}
+    assert spoken_numbers("dos millones quinientos mil") == {2_500_000}
+    assert spoken_numbers("ciento cuatro") == {104}
+    assert spoken_numbers("una casa, dos perros") == {2}
+    assert spoken_numbers("un millón de libras") == {1_000_000}
+    assert spoken_numbers("Era una tarde tranquila.") == set()
+
+
+def test_a_source_number_written_in_words_in_the_target_is_not_missing() -> None:
+    assert numbers(context("He paid 50,000 dollars.", "Pagó cincuenta mil dólares.")) == []
+    assert numbers(context("He paid 50,000 dollars.", "Pagó cuarenta mil dólares."))

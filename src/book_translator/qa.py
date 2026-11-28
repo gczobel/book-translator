@@ -189,11 +189,93 @@ def _names(text: str) -> list[str]:
     return found
 
 
+_UNITS = {
+    w: i
+    for i, w in enumerate(
+        "cero uno dos tres cuatro cinco seis siete ocho nueve diez once doce trece catorce"
+        " quince dieciseis diecisiete dieciocho diecinueve veinte".split()
+    )
+}
+_UNITS |= {"un": 1, "una": 1}
+_UNITS |= {
+    f"veinti{w}": 20 + n
+    for w, n in (
+        ("uno", 1),
+        ("un", 1),
+        ("dos", 2),
+        ("tres", 3),
+        ("cuatro", 4),
+        ("cinco", 5),
+        ("seis", 6),
+        ("siete", 7),
+        ("ocho", 8),
+        ("nueve", 9),
+    )
+}
+_TENS = {
+    w: (i + 3) * 10
+    for i, w in enumerate("treinta cuarenta cincuenta sesenta setenta ochenta noventa".split())
+}
+_HUNDREDS = {
+    w: (i + 1) * 100
+    for i, w in enumerate(
+        "ciento doscientos trescientos cuatrocientos quinientos seiscientos setecientos"
+        " ochocientos novecientos".split()
+    )
+}
+_HUNDREDS["cien"] = 100
+_WORD = re.compile(r"[a-z]+")
+
+
+def spoken_numbers(text: str) -> set[int]:
+    """The numbers a Spanish text writes in words ("cincuenta mil" -> 50000), as digits."""
+    words = _WORD.findall(fold(text))
+    found: set[int] = set()
+    total = part = 0
+    seen = False
+    previous_tens = False
+
+    def flush() -> None:
+        nonlocal total, part, seen, previous_tens
+        if seen:
+            found.add(total + part)
+        total = part = 0
+        seen = previous_tens = False
+
+    for word in words:
+        if word in ("un", "una", "uno") and not previous_tens:
+            continue  # an article, unless it ends a "treinta y un"
+        elif word in _UNITS:
+            part += _UNITS[word]
+        elif word in _TENS:
+            part += _TENS[word]
+            previous_tens = True
+        elif word in _HUNDREDS:
+            part += _HUNDREDS[word]
+        elif word == "y" and previous_tens:
+            previous_tens = False
+            continue
+        elif word == "mil":
+            total += (part or 1) * 1000
+            part = 0
+        elif word in ("millon", "millones"):
+            total = (total + (part or 1)) * 1_000_000
+            part = 0
+        else:
+            flush()
+            continue
+        seen = True
+    flush()
+    return found
+
+
 @check("numbers")
 def numbers(context: QAContext) -> list[Finding]:
     found = []
     for block in context.sources:
-        target = {_digits(n) for n in _NUMBER.findall(target_text(context, block))}
+        text = target_text(context, block)
+        target = {_digits(n) for n in _NUMBER.findall(text)}
+        target |= {str(n) for n in spoken_numbers(text)}
         for number in _NUMBER.findall(source_text(context, block)):
             if _digits(number) not in target:
                 found.append(
