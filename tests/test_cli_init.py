@@ -98,3 +98,19 @@ def test_init_shows_the_estimate_for_every_stage_that_calls_the_model(
     ):
         assert f"  {stage}: $" in out
     assert "margin for retries" in out
+
+
+def test_init_warns_when_the_cap_is_below_the_estimate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    init(tmp_path, "--variety", "neutral", "--cap", "0.01")
+
+    assert "Warning: the cap ($0.01) is below the estimate" in capsys.readouterr().out
+
+
+def test_init_does_not_warn_when_the_cap_covers_the_estimate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    init(tmp_path, "--variety", "neutral")
+
+    assert "Warning" not in capsys.readouterr().out

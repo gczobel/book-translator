@@ -341,6 +341,11 @@ def _init(args: argparse.Namespace) -> None:
         f"  one clean pass ${est.base_usd:.2f}"
         f" + {est.margin:.0%} margin for retries = ${est.cost_usd:.2f}"
     )
+    if args.cap < est.cost_usd:
+        print(
+            f"Warning: the cap (${args.cap:.2f}) is below the estimate (${est.cost_usd:.2f});"
+            " the run may stop before it finishes. Raise it with `run --cap`."
+        )
     print("No LLM has been called.")
 
 
