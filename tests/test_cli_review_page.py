@@ -68,3 +68,33 @@ def test_the_analysis_page_marks_which_cards_take_free_text(tmp_path: Path) -> N
     fixed = {c["id"].split("-")[0] for c in cards if not c["free_text"]}
     assert free <= {"name", "glossary", "motif"}
     assert {"variety", "dialogue", "thoughts"} <= fixed
+
+
+def test_the_page_has_no_innerhtml_so_card_text_is_never_parsed_as_markup() -> None:
+    from book_translator.review_page import SCRIPT
+
+    assert "innerHTML" not in SCRIPT
+    assert "outerHTML" not in SCRIPT
+    assert "insertAdjacentHTML" not in SCRIPT
+
+
+def test_the_page_builder_escapes_its_title_itself() -> None:
+    from book_translator.review_page import interactive
+
+    page = interactive("<img src=x>", {"cards": []}, "")
+
+    assert "<img" not in page
+
+
+def test_a_hostile_gate_name_is_escaped_in_the_page_title_and_heading(tmp_path: Path) -> None:
+    from book_translator.review_html import write_html
+
+    review = tmp_path / "x-review.yaml"
+    review.write_text('gate: "<img src=x onerror=alert(1)>"\ncards: []\n')
+
+    write_html(review)
+
+    page = review.with_suffix(".html").read_text()
+    assert "<img" not in page
+    assert "&lt;img" in page
+    assert "&amp;lt;" not in page  # escaped once, not twice

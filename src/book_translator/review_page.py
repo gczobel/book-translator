@@ -5,6 +5,7 @@ element with `textContent`, so card text (which is book text) is never treated a
 """
 
 import json
+from html import escape
 from typing import Any
 
 CSS = """
@@ -155,7 +156,11 @@ def embed(document: dict[str, Any]) -> str:
 
 
 def interactive(title: str, document: dict[str, Any], static: str) -> str:
-    """The whole page. `static` is the plain listing, shown when scripts are off."""
+    """The whole page. `static` is the plain listing, shown when scripts are off.
+
+    `title` is plain text; it is escaped here.
+    """
+    title = escape(title)
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'

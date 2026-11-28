@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from book_translator import main
+from book_translator.estimate import STAGE_LOAD
 
 FIXTURES = Path(__file__).parent / "fixtures" / "epub"
 
@@ -86,16 +87,7 @@ def test_init_shows_the_estimate_for_every_stage_that_calls_the_model(
     init(tmp_path, "--variety", "neutral")
 
     out = capsys.readouterr().out
-    for stage in (
-        "analysis",
-        "consolidation",
-        "enrichment",
-        "draft",
-        "tk_resolution",
-        "fidelity",
-        "polish",
-        "post_polish_fidelity",
-    ):
+    for stage in STAGE_LOAD:
         assert f"  {stage}: $" in out
     assert "margin for retries" in out
 
