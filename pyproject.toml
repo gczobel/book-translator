@@ -39,7 +39,10 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".github/scripts"]
-markers = ["e2e: end-to-end CLI tests on a fixture EPUB (the e2e required check)"]
+markers = [
+    "e2e: end-to-end CLI tests on a fixture EPUB (the e2e required check)",
+    "epubcheck: runs the real epubcheck from $EPUBCHECK (skipped when it is unset)",
+]
 
 [tool.mypy]
 strict = true

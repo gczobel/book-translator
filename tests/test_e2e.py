@@ -5,6 +5,7 @@ Select with `pytest -m e2e`.
 """
 
 import json
+import os
 import sqlite3
 import zipfile
 from collections.abc import Iterator
@@ -141,6 +142,25 @@ def test_the_output_passes_epubcheck_and_keeps_files_ids_and_classes(
             # What is left is the block the raya split added: it keeps the class, no id.
             assert after == ([("p", None, "speech")] if name.endswith("ch1.xhtml") else [])
     assert "No errors" in (ws / "epubcheck-report.txt").read_text()
+
+
+@pytest.mark.epubcheck
+@pytest.mark.skipif(
+    not os.environ.get("EPUBCHECK"), reason="EPUBCHECK is not set (path to the epubcheck .jar)"
+)
+def test_the_export_passes_the_real_epubcheck(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ws = init(tmp_path)  # EPUBCHECK is left as the environment has it: no fake validator here
+    pipeline(ws, E2EAdapter())
+    capsys.readouterr()
+
+    main(["export", str(ws)])  # exits non-zero if epubcheck rejects the file
+
+    assert "epubcheck report:" in capsys.readouterr().out
+    report = (ws / "epubcheck-report.txt").read_text()
+    assert "Messages: 0 fatals / 0 errors" in report
+    assert (ws / "ws.es.epub").is_file()
 
 
 def test_every_block_is_translated_and_the_speech_is_split_by_raya(
