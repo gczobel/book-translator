@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
+from book_translator.renderings import has_note
 from book_translator.review_html import write_html
 
 
@@ -48,13 +49,19 @@ def write_review(
             "create table if not exists review_cards"
             " (gate text, id text, options text, recommended text, primary key (gate, id))"
         )
-        if "free_text" not in {r[1] for r in db.execute("pragma table_info(review_cards)")}:
+        columns = {r[1] for r in db.execute("pragma table_info(review_cards)")}
+        if "free_text" not in columns:
             db.execute("alter table review_cards add column free_text integer not null default 0")
+        if "context" not in columns:
+            db.execute("alter table review_cards add column context text not null default ''")
         db.execute("delete from review_cards where gate = ?", (gate,))
         db.executemany(
-            "insert into review_cards (gate, id, options, recommended, free_text)"
-            " values (?, ?, ?, ?, ?)",
-            [(gate, c.id, json.dumps(c.options), c.recommended, c.free_text) for c in cards],
+            "insert into review_cards (gate, id, options, recommended, free_text, context)"
+            " values (?, ?, ?, ?, ?, ?)",
+            [
+                (gate, c.id, json.dumps(c.options), c.recommended, c.free_text, c.context)
+                for c in cards
+            ],
         )
     document = {"gate": gate, "cards": [c.model_dump() for c in cards], **(extra or {})}
     path.write_text(yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=100))
@@ -105,6 +112,7 @@ class _StoredCard:
 
     options: list[str]
     free_text: bool
+    context: str  # the source text around the decision: a parenthetical in it is not a note
 
 
 def read_choices_file(db: sqlite3.Connection, path: Path, gate: str) -> dict[str, str]:
@@ -114,9 +122,9 @@ def read_choices_file(db: sqlite3.Connection, path: Path, gate: str) -> dict[str
     non-empty text goes). Raises ReviewError for anything else.
     """
     cards = {
-        row[0]: _StoredCard(json.loads(row[1]), bool(row[2]))
+        row[0]: _StoredCard(json.loads(row[1]), bool(row[2]), row[3])
         for row in db.execute(
-            "select id, options, free_text from review_cards where gate = ?", (gate,)
+            "select id, options, free_text, context from review_cards where gate = ?", (gate,)
         )
     }
     try:
@@ -137,7 +145,15 @@ def read_choices_file(db: sqlite3.Connection, path: Path, gate: str) -> dict[str
             raise ReviewError(
                 f"{path.name}: card {id_!r}: choice must be one of: {', '.join(options)}"
             )
-        choices[id_] = choice.strip() if choice not in options else choice
+        if choice not in options:
+            choice = choice.strip()
+            if has_note(choice, stored.context):
+                raise ReviewError(
+                    f"{path.name}: card {id_!r}: {choice!r} looks like a note, not text for the"
+                    " sentence (a parenthetical that is not in the source); put the explanation"
+                    " elsewhere and give only the wording"
+                )
+        choices[id_] = choice
     return choices
 
 
