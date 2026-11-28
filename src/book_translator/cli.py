@@ -135,7 +135,10 @@ def main(
         if args.cap is not None:
             set_cap(args.workspace / workspace.DB_NAME, args.cap)
         try:
-            run(args.workspace, adapter, search, Progress(None, quiet=args.quiet))
+            with workspace.locked(args.workspace):
+                run(args.workspace, adapter, search, Progress(None, quiet=args.quiet))
+        except workspace.WorkspaceBusyError as exc:
+            sys.exit(f"error: {exc}; wait for it to finish, or stop it, then run again")
         except CapReachedError as exc:
             sys.exit(f"stopped: {exc}")
         except InvalidOutputError as exc:
