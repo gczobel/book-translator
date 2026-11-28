@@ -221,8 +221,8 @@ def test_a_second_tk_for_the_same_term_points_at_the_first_so_the_reader_decides
     ws = stopped_at_gate(tmp_path, ResolveAdapter([first, second], unsure))
 
     cards = {c["id"]: c for c in review(ws)["cards"]}
-    assert "same term as" not in cards["TK-1"]["why"]
-    assert "same term as TK-1" in cards["TK-2"]["why"]
+    assert "Same term as" not in cards["TK-1"]["why"]
+    assert "Same term as TK-1" in cards["TK-2"]["why"]
 
 
 def test_a_later_choice_bans_the_rendering_the_entry_had_before(tmp_path: Path) -> None:

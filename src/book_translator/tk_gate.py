@@ -60,6 +60,7 @@ def review_content(db: sqlite3.Connection) -> tuple[list[Card], dict[str, list[d
         db.row_factory = None
     cards: list[Card] = []
     summary: list[dict[str, str]] = []
+    first_open: dict[str, str] = {}
     for row in rows:
         if row["resolution"] is not None:
             summary.append(
@@ -72,11 +73,14 @@ def review_content(db: sqlite3.Connection) -> tuple[list[Card], dict[str, list[d
             )
             continue
         candidates = json.loads(row["candidates"])
+        earlier = first_open.setdefault(row["span"], row["id"])
         why = (
             "A recurring term is decided once, by you."
             if row["scope"] == "recurring"
             else "The resolver's recommendation; it was not sure enough to settle it alone."
         )
+        if earlier != row["id"]:
+            why += f" Same term as {earlier}: decide it once."
         cards.append(
             TKCard(
                 id=row["id"],
