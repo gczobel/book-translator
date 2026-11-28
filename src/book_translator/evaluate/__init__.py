@@ -15,6 +15,7 @@ from book_translator.config import STAGE_MODELS
 from book_translator.epub import open_epub
 from book_translator.evaluate import chrf
 from book_translator.evaluate.align import ChapterShape, align_blocks, align_chapters
+from book_translator.evaluate.comet import CometScorer, Triple
 from book_translator.evaluate.embed import Embedder
 from book_translator.evaluate.judge import SceneView, judge_scenes
 from book_translator.evaluate.judge import diagnose as diagnose_report
@@ -90,6 +91,7 @@ def evaluate(
     adapter: Adapter | None = None,
     judge: bool = False,
     diagnose: bool = False,
+    comet: CometScorer | None = None,
 ) -> Path:
     """Write the report next to the workspace's database; returns the JSON file.
 
@@ -109,7 +111,11 @@ def evaluate(
         db.close()
     ours, theirs = _chapters(output), _chapters(reference)
     refs: dict[tuple[int, int], list[str]] = {}
-    scores = _score(ours, theirs, embedder, refs)
+    segments: list[tuple[int, Triple]] = []
+    sources = _source_blocks(workspace / SOURCE_NAME) if comet is not None else None
+    scores = _score(ours, theirs, embedder, refs, sources, segments)
+    if comet is not None:
+        _add_comet(scores, comet, segments)
     report: dict[str, Any] = {
         "output": output.name,
         "reference": reference.name,
@@ -132,14 +138,56 @@ def evaluate(
     return workspace / REPORT_JSON
 
 
+def _source_blocks(source: Path) -> list[list[str]]:
+    """The blocks of each source chapter, as text."""
+    return [
+        [b.text.strip() for s in chapter.scenes for b in s.blocks if b.text.strip()]
+        for chapter in open_epub(source).book().chapters
+    ]
+
+
+def _add_comet(
+    scores: dict[str, Any], comet: CometScorer, segments: list[tuple[int, Triple]]
+) -> None:
+    """COMET over the aligned segments: a score per chapter and overall (the mean of segments)."""
+    values = comet.score([triple for _, triple in segments])
+    by_chapter: dict[int, list[float]] = {}
+    for (chapter, _), value in zip(segments, values, strict=True):
+        by_chapter.setdefault(chapter, []).append(value)
+    for chapter in scores["chapters"]:
+        found = by_chapter.get(chapter["index"] - 1)
+        chapter["comet"] = round(sum(found) / len(found), 4) if found else None
+        chapter["comet_segments"] = len(found or [])
+    scores["comet_overall"] = round(sum(values) / len(values), 4) if values else None
+    scores["comet_segments"] = len(values)
+
+
+def _source_of(
+    our_texts: list[str], chapters: range, sources: list[list[str]], embedder: Embedder
+) -> dict[int, str]:
+    """For each of our blocks (by place in `our_texts`), the source text it translates, found by
+    aligning our blocks with the blocks of the same chapters of the source."""
+    source_texts = [b for c in chapters if c < len(sources) for b in sources[c]]
+    found: dict[int, str] = {}
+    for span in align_blocks(our_texts, source_texts, embedder):
+        if span.ours and span.theirs:
+            text = " ".join(source_texts[j] for j in span.theirs)
+            for i in span.ours:
+                found[i] = text
+    return found
+
+
 def _score(
     ours: list[_Chapter],
     theirs: list[_Chapter],
     embedder: Embedder,
     scene_refs: dict[tuple[int, int], list[str]],
+    sources: list[list[str]] | None = None,
+    segments: list[tuple[int, Triple]] | None = None,
 ) -> dict[str, Any]:
     """chrF per chapter; fills `scene_refs` with the reference blocks aligned to each of our
-    scenes, keyed by (0-based chapter, 0-based scene)."""
+    scenes, keyed by (0-based chapter, 0-based scene). With `sources` and `segments`, also
+    collects (0-based chapter, (source, ours, reference)) for each aligned segment."""
     stats: list[list[tuple[int, int, int]]] = [chrf.add_stats([]) for _ in ours]
     ref_titles: list[list[str]] = [[] for _ in ours]
     blocks = [0] * len(ours)
@@ -160,6 +208,11 @@ def _score(
         for i in group.ours:
             ref_titles[i] = [theirs[j].title or "(untitled)" for j in group.theirs]
         owner = group.ours[0]
+        source_of = (
+            _source_of([b for _, _, b in our_blocks], group.ours, sources, embedder)
+            if sources is not None
+            else {}
+        )
         for span in align_blocks([b for _, _, b in our_blocks], their_blocks, embedder):
             if span.ours:
                 owner = our_blocks[span.ours[0]][0]
@@ -171,6 +224,10 @@ def _score(
                     *scene_refs.get(key, []),
                     *(their_blocks[j] for j in span.theirs),
                 ]
+            if segments is not None and span.ours and span.theirs:
+                src = " ".join(dict.fromkeys(source_of[i] for i in span.ours if i in source_of))
+                if src and hyp and ref:
+                    segments.append((owner, (src, hyp, ref)))
             stats[owner] = chrf.add_stats([stats[owner], chrf.segment_stats(hyp, ref)])
             blocks[owner] += len(span.ours) if span.theirs else 0
     chapters = [
