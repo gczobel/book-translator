@@ -214,6 +214,19 @@ def test_the_open_tk_check_refuses_while_any_tk_is_open(tmp_path: Path) -> None:
         require_no_open_tks(db)
 
 
+def test_a_candidate_that_is_a_note_in_parentheses_is_flagged_on_the_card(
+    tmp_path: Path,
+) -> None:
+    noted = {"rendering": "ustedes (plural de cortesía/neutro)", "reason": "a description"}
+    candidates = [{"rendering": "ustedes", "reason": "plain"}, noted]
+    ws = stopped_at_gate(tmp_path, ResolveAdapter([tk(candidates=candidates)], unsure))
+
+    (card,) = review(ws)["cards"]
+
+    assert "ustedes (plural de cortesía/neutro)" in card["why"]
+    assert "note" in card["why"]
+
+
 def test_an_empty_string_choice_accepts_the_recommendation_like_a_missing_one(
     tmp_path: Path,
 ) -> None:
