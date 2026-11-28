@@ -296,3 +296,21 @@ def test_only_an_open_finding_can_be_waived(
 
     message = str(stopped.value)
     assert "no open omission finding" in message and source_ids()[1] in message
+
+
+def test_narration_and_speech_sharing_a_paragraph_are_broken_apart_on_every_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    adapter = CountingAdapter()
+    ws = translate(tmp_path, adapter)
+    block = source_ids()[1]
+    set_target(ws, block, "Salió Mrs. Otis. —Me temo que está muy mal —dijo— y le traje algo.")
+
+    qa(ws, adapter, capsys)
+
+    rows = query(ws, f"select text from targets where source = '{block}' order by position")
+    assert [r[0] for r in rows] == [
+        "Salió Mrs. Otis.",
+        "—Me temo que está muy mal —dijo— y le traje algo.",
+    ]
+    assert (block, "raya") not in findings(ws)

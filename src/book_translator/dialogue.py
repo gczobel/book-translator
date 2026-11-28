@@ -8,9 +8,13 @@ docs/reference/epublibre.md section 3.2 (D1-D4, D6). Blocks with one or no turn 
 """
 
 import re
+import sqlite3
+from collections import defaultdict
 from collections.abc import Callable, Sequence
 
 from book_translator.bible import StyleSheet
+from book_translator.epub import Epub
+from book_translator.inline import InlineCodeError
 
 _SPEECH = re.compile(r"«([^«»]*)»")
 
@@ -19,7 +23,12 @@ def lay_out(targets: Sequence[str], dialogue: str) -> list[str]:
     """The target blocks of one source block, laid out as `dialogue` asks."""
     if dialogue != "raya-split":
         return list(targets)
-    return [piece for target in targets for piece in _split(target)]
+    return [
+        paragraph
+        for target in targets
+        for piece in _split(target)
+        for paragraph in break_paragraphs(piece)
+    ]
 
 
 def lay_out_legally(
@@ -60,3 +69,47 @@ def _render(turn: list[str]) -> str:
         if index + 2 < len(turn):  # speech resumes: close the raya, comma stays outside
             out = out.removesuffix(",") + "—, "
     return out
+
+
+_NARRATION_ENDS = re.compile(r"\n+|(?<=[.!?\u2026:])[ \t]+(?=\u2014[^\s\u2014])")
+
+
+def break_paragraphs(text: str) -> list[str]:
+    """Narration and speech never share a paragraph: a raya that opens speech after narration
+    (after a full stop or a colon, or on a new line) starts a paragraph of its own. A paragraph
+    that already opens with a raya is left whole, and so is a raya inside an open « »: both
+    are incisos."""
+    if text.lstrip().startswith("\u2014"):
+        return [text]
+    for end in _NARRATION_ENDS.finditer(text):
+        if text[: end.start()].count("\u00ab") == text[: end.start()].count("\u00bb"):
+            return [text[: end.start()].strip(), text[end.end() :].strip()]
+    return [text]
+
+
+def relayout(db: sqlite3.Connection, source: Epub, style: StyleSheet) -> int:
+    """Break narration from speech in the stored target blocks, renumbering their positions.
+    Deterministic and idempotent. A block whose new layout would break its inline codes is left
+    as it is. Returns how many source blocks changed."""
+    if style.dialogue != "raya-split":
+        return 0
+    pieces: dict[str, list[str]] = defaultdict(list)
+    for block, text in db.execute("select source, text from targets order by source, position"):
+        pieces[str(block)].append(str(text))
+    changed = 0
+    with db:
+        for block, texts in pieces.items():
+            laid = [paragraph for text in texts for paragraph in break_paragraphs(text)]
+            if laid == texts:
+                continue
+            try:
+                source.encode_block(block).validate_pieces(laid)
+            except (InlineCodeError, KeyError):
+                continue
+            db.execute("delete from targets where source = ?", (block,))
+            db.executemany(
+                "insert into targets values (?, ?, ?)",
+                [(block, n, text) for n, text in enumerate(laid)],
+            )
+            changed += 1
+    return changed
