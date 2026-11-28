@@ -231,7 +231,8 @@ class LLM:
         switched = False
         calls = answers = 0  # a refusal changes the ask or model; it does not use up an answer try
         while answers < self._max_attempts:
-            attempt, calls = calls, calls + 1
+            attempt = calls  # the adapter's number for this call: 0 for the first, then 1, 2...
+            calls += 1
             if error is not None:
                 asked = replace(asked, feedback=str(error))
             if self._budget is not None:

@@ -1,6 +1,7 @@
 """Seam 1: the CLI. `approve --choices` takes {card id: choice}; free text where a card opts in."""
 
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,11 @@ def test_a_choices_file_with_an_unknown_card_is_refused_and_the_tk_stays_open(
     assert "TK-9" in str(exit_.value)
     (row,) = tks_of(ws)
     assert row["resolution"] is None
+    with sqlite3.connect(ws / "book.sqlite") as db:
+        assert db.execute("select count(*) from decisions where gate = 'tk'").fetchone() == (0,)
+        assert db.execute("select status from stages where stage = 'tk gate'").fetchone() == (
+            "waiting",
+        )
 
 
 def test_a_choices_file_that_is_not_a_json_object_is_refused(
@@ -78,6 +84,60 @@ def test_free_text_on_a_tk_card_is_applied_like_a_chosen_candidate(tmp_path: Pat
     assert entry["rendering"] == "velada plácida"
     assert "velada plácida" not in entry["banned_variants"]
     assert {"tarde tranquila", "velada serena"} <= set(entry["banned_variants"])
+
+
+def test_free_text_with_a_note_in_parentheses_is_refused_and_the_tk_stays_open(
+    tmp_path: Path,
+) -> None:
+    ws = stopped_at_gate(tmp_path, ResolveAdapter([tk()], unsure))
+    path = write_choices(ws, {"TK-1": "ustedes (plural de cortesía)"})
+
+    with pytest.raises(SystemExit) as exit_:
+        main(["approve", str(ws), "--choices", str(path)])
+
+    assert "TK-1" in str(exit_.value)
+    assert "note" in str(exit_.value)
+    (row,) = tks_of(ws)
+    assert row["resolution"] is None
+    assert target_of(ws, source_ids()[1]) != "ustedes (plural de cortesía) Fin."
+    with sqlite3.connect(ws / "book.sqlite") as db:
+        assert db.execute("select count(*) from decisions where gate = 'tk'").fetchone() == (0,)
+        assert db.execute("select status from stages where stage = 'tk gate'").fetchone() == (
+            "waiting",
+        )
+
+
+def test_free_text_may_keep_a_parenthetical_the_source_excerpt_has(tmp_path: Path) -> None:
+    excerpt = "It was a quiet evening (again)."
+    ws = stopped_at_gate(tmp_path, ResolveAdapter([tk(excerpt=excerpt)], unsure))
+    path = write_choices(ws, {"TK-1": "una velada (again)"})
+
+    main(["approve", str(ws), "--choices", str(path)])
+
+    (row,) = tks_of(ws)
+    assert row["resolution"] == "una velada (again)"
+
+
+def test_choosing_a_banned_variant_at_the_analysis_gate_unbans_it(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    main(["init", str(EPUB), "--workspace", str(ws), "--variety", "neutral"])
+    entry = {
+        "term": "ghost",
+        "rendering": "fantasma",
+        "banned_variants": ["espectro", "aparición"],
+        "origin": "extracted",
+    }
+    main(["run", str(ws)], adapter=Part2Adapter([json.dumps(part2(glossary=[entry]))]))
+    path = write_choices(ws, {"glossary-1": "espectro"})
+
+    main(["approve", str(ws), "--choices", str(path)])
+
+    with sqlite3.connect(ws / "book.sqlite") as db:
+        bible = json.loads(db.execute("select result from bible").fetchone()[0])
+    (saved,) = bible["glossary"]
+    assert saved["rendering"] == "espectro"
+    assert "espectro" not in saved["banned_variants"]
+    assert "aparición" in saved["banned_variants"]
 
 
 def test_free_text_is_refused_on_a_card_that_does_not_take_it(

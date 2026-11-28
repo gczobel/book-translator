@@ -21,7 +21,7 @@ def html_path(review: Path) -> Path:
 def write_html(review: Path) -> None:
     """Render the review file next to itself, showing every card."""
     document = yaml.safe_load(review.read_text())
-    gate = escape(str(document.get("gate", "")))
+    gate = str(document.get("gate", ""))
     body = "".join(_card(c) for c in document.get("cards", []))
     for name, value in document.items():
         if name not in ("gate", "cards"):

@@ -141,8 +141,10 @@ def test_a_choice_that_is_not_a_candidate_is_refused_and_the_tk_stays_open(
     ws = stopped_at_gate(tmp_path, ResolveAdapter([tk()], unsure))
     edit_choice(ws, "TK-1", "algo inventado")
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exit_:
         main(["approve", str(ws)])
+
+    assert "--choices" in str(exit_.value)  # this card takes free text, but only from that file
 
     (row,) = tks_of(ws)
     assert row["resolution"] is None
@@ -223,6 +225,23 @@ def test_a_second_tk_for_the_same_term_points_at_the_first_so_the_reader_decides
     cards = {c["id"]: c for c in review(ws)["cards"]}
     assert "Same term as" not in cards["TK-1"]["why"]
     assert "Same term as TK-1" in cards["TK-2"]["why"]
+
+
+def test_a_tk_for_a_term_an_earlier_tk_settled_says_what_it_was_settled_to(
+    tmp_path: Path,
+) -> None:
+    first = tk(confidence=0.9)
+    second = {**first, "block": source_ids()[4], "provisional": "Fin."}
+
+    def sure_of_the_first(card: dict[str, Any]) -> dict[str, Any]:
+        return {**unsure(card), "confidence": 0.9 if card["id"] == "TK-1" else 0.1}
+
+    ws = stopped_at_gate(tmp_path, ResolveAdapter([first, second], sure_of_the_first))
+
+    (card,) = review(ws)["cards"]
+    assert card["id"] == "TK-2"
+    assert "Same term as TK-1" in card["why"]
+    assert "already settled to 'tarde tranquila'" in card["why"]
 
 
 def test_a_later_choice_bans_the_rendering_the_entry_had_before(tmp_path: Path) -> None:

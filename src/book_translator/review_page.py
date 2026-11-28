@@ -5,6 +5,7 @@ element with `textContent`, so card text (which is book text) is never treated a
 """
 
 import json
+from html import escape
 from typing import Any
 
 CSS = """
@@ -100,10 +101,10 @@ box.appendChild(h('h2',null,c.question));
 if(c.context){box.appendChild(h('blockquote','context',c.context));}
 var group=h('div');group.setAttribute('role','radiogroup');
 group.style.cssText='display:flex;flex-direction:column;gap:10px';
-var listed=false;
+var listed=false,radios={};
 (c.options||[]).forEach(function(o){
 var label=h('label','opt'),input=h('input');input.type='radio';input.name='choice';
-input.checked=o===cur;listed=listed||o===cur;
+input.checked=o===cur;listed=listed||o===cur;radios[o]=input;
 input.addEventListener('change',function(){picks[c.id]=o;chrome();});
 var text=h('span');
 if(o===c.recommended){text.appendChild(h('span','badge','Recommended'));}
@@ -115,11 +116,15 @@ var label=h('label','opt'),input=h('input');input.type='radio';input.name='choic
 input.checked=!listed;var text=h('span');
 text.appendChild(h('span',null,'Other (your own wording)'));
 other=h('textarea','other');other.setAttribute('aria-label','Your own wording');
+var hint=h('p','detail','Empty: this card is back on its recommendation.');hint.hidden=true;
+hint.setAttribute('role','status');
 if(!listed){other.value=cur;}
-other.addEventListener('input',function(){var v=other.value.trim();input.checked=true;
-if(v){picks[c.id]=v;}else{delete picks[c.id];}chrome();});
+other.addEventListener('input',function(){var v=other.value.trim();
+if(v){input.checked=true;hint.hidden=true;picks[c.id]=v;}
+else{delete picks[c.id];hint.hidden=false;input.checked=false;
+if(radios[c.recommended]){radios[c.recommended].checked=true;}}chrome();});
 input.addEventListener('change',function(){other.focus();});
-text.appendChild(other);label.appendChild(input);label.appendChild(text);group.appendChild(label);}
+text.appendChild(other);text.appendChild(hint);label.appendChild(input);label.appendChild(text);group.appendChild(label);}
 box.appendChild(group);
 if(c.why){box.appendChild(h('p','detail','Why: '+c.why));}
 slot.appendChild(box);chrome();}
@@ -155,7 +160,11 @@ def embed(document: dict[str, Any]) -> str:
 
 
 def interactive(title: str, document: dict[str, Any], static: str) -> str:
-    """The whole page. `static` is the plain listing, shown when scripts are off."""
+    """The whole page. `static` is the plain listing, shown when scripts are off.
+
+    `title` is plain text; it is escaped here.
+    """
+    title = escape(title)
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'

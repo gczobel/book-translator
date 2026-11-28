@@ -8,7 +8,6 @@ recorded with resolver `auto`, and the provisional rendering in the draft is rep
 """
 
 import json
-import re
 import sqlite3
 from typing import Annotated
 
@@ -19,6 +18,7 @@ from book_translator.config import TK_CONFIDENCE_THRESHOLD
 from book_translator.epub import Epub
 from book_translator.llm import LLM, LLMRequest
 from book_translator.progress import Tick, no_tick
+from book_translator.renderings import has_note
 from book_translator.stages.context import bible_slice
 from book_translator.tolerance import percentage
 
@@ -30,12 +30,6 @@ _PROMPT = (
     "The resolution is pasted into the sentence as is: give only the target-language text, "
     "never a note or description in parentheses; put any explanation in the reason."
 )
-_PARENTHETICAL = re.compile(r"\([^)]*\)")
-
-
-def has_note(rendering: str, excerpt: str) -> bool:
-    """A parenthetical in the rendering that is not in the source text is a note, not text."""
-    return any(p not in excerpt for p in _PARENTHETICAL.findall(rendering))
 
 
 class Resolution(BaseModel):

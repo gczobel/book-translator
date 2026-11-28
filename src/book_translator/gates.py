@@ -126,6 +126,8 @@ def apply_analysis(db: sqlite3.Connection, choices: dict[str, str]) -> None:
     for n, entry in enumerate(bible.glossary, 1):
         prefix = "name" if entry.origin == "established" else "glossary"
         entry.rendering = choices.get(f"{prefix}-{n}", entry.rendering)
+        # a rendering the reader chose is never also banned for its own term
+        entry.banned_variants = [b for b in entry.banned_variants if b != entry.rendering]
     for n, motif in enumerate(bible.motifs, 1):
         motif.locked_rendering = choices.get(f"motif-{n}", motif.locked_rendering)
     with db:
