@@ -22,7 +22,7 @@ from pathlib import Path
 from book_translator.bible import Bible, GlossaryEntry
 from book_translator.epub import open_epub
 from book_translator.review import Card
-from book_translator.stages.resolve import replace_provisional
+from book_translator.stages.resolve import has_note, replace_provisional
 from book_translator.workspace import SOURCE_NAME
 
 TK_GATE = "tk"
@@ -77,6 +77,11 @@ def review_content(db: sqlite3.Connection) -> tuple[list[Card], dict[str, list[d
             if row["scope"] == "recurring"
             else "The resolver's recommendation; it was not sure enough to settle it alone."
         )
+        notes = [c["rendering"] for c in candidates if has_note(c["rendering"], row["excerpt"])]
+        if notes:
+            why += (
+                f" Careful, this looks like a note, not text for the sentence: {'; '.join(notes)}."
+            )
         cards.append(
             TKCard(
                 id=row["id"],
