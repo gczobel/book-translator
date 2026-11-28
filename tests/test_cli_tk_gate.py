@@ -195,6 +195,23 @@ def test_a_resolved_recurring_tk_joins_the_glossary_and_earlier_chapters_follow(
     assert "tarde tranquila" in entry["banned_variants"]
 
 
+def test_two_tks_for_one_term_settled_differently_end_with_one_consistent_entry(
+    tmp_path: Path,
+) -> None:
+    first = recurring_in_chapter_two()
+    second = {**first, "block": source_ids()[4], "provisional": "Fin."}
+    ws = stopped_at_gate(tmp_path, ResolveAdapter([first, second], unsure))
+    edit_choice(ws, "TK-1", "tarde tranquila")
+    edit_choice(ws, "TK-2", "velada serena")
+
+    main(["approve", str(ws)])
+
+    (entry,) = [e for e in glossary_of(ws) if e["term"] == "quiet evening"]
+    assert entry["rendering"] == "velada serena"
+    assert "velada serena" not in entry["banned_variants"]
+    assert "tarde tranquila" in entry["banned_variants"]
+
+
 def test_a_local_tk_does_not_touch_the_glossary(tmp_path: Path) -> None:
     ws = stopped_at_gate(tmp_path, ResolveAdapter([tk()], unsure))
     before = glossary_of(ws)
