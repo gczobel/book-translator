@@ -1,4 +1,4 @@
-"""Command-line interface: init, run, status, approve, waive, export and evaluate."""
+"""Command-line interface: init, run, status, approve, waive, unwaive, export and evaluate."""
 
 import argparse
 import json
@@ -29,7 +29,7 @@ from book_translator.inline import InlineCodeError
 from book_translator.llm import Adapter, InvalidOutputError, ModelRefusedError
 from book_translator.progress import Progress
 from book_translator.pydantic_ai_adapter import PydanticAIAdapter
-from book_translator.qa import WaiverError, print_report, waive
+from book_translator.qa import WaiverError, print_report, unwaive, waive
 from book_translator.review import ReviewError
 from book_translator.run import run
 from book_translator.search import Search, WikiSearch
@@ -86,6 +86,12 @@ def _parser() -> argparse.ArgumentParser:
     waive_cmd.add_argument("check", help="the check that reported them, e.g. numbers")
     waive_cmd.add_argument("blocks", nargs="+", help="the block ids to accept it for")
     waive_cmd.add_argument("--reason", default="", help="why it is fine (kept in the report)")
+    unwaive_cmd = sub.add_parser(
+        "unwaive", help="take back a waiver, so the finding blocks the build again"
+    )
+    unwaive_cmd.add_argument("workspace", type=Path)
+    unwaive_cmd.add_argument("check", help="the check the finding was waived for")
+    unwaive_cmd.add_argument("blocks", nargs="+", help="the block ids to reopen it for")
     export_cmd = sub.add_parser("export", help="build the translated EPUB and validate it")
     export_cmd.add_argument("workspace", type=Path)
     evaluate_cmd = sub.add_parser(
@@ -135,6 +141,8 @@ def main(
         _approve(args.workspace)
     elif args.command == "waive":
         _waive(args)
+    elif args.command == "unwaive":
+        _unwaive(args)
     elif args.command == "export":
         _export(args.workspace)
     elif args.command == "evaluate":
@@ -194,6 +202,19 @@ def _waive(args: argparse.Namespace) -> None:
         f"{count} finding(s) accepted. They stay in the report; they come back if the block's"
         " text changes. Run book-translator run to re-check."
     )
+
+
+def _unwaive(args: argparse.Namespace) -> None:
+    if not (args.workspace / workspace.DB_NAME).is_file():
+        sys.exit(f"error: not a workspace: {args.workspace}")
+    db = sqlite3.connect(args.workspace / workspace.DB_NAME)
+    try:
+        count = unwaive(db, args.check, args.blocks)
+    except WaiverError as exc:
+        sys.exit(f"error: {exc}")
+    finally:
+        db.close()
+    print(f"{count} finding(s) reopened. They block the build until fixed or waived again.")
 
 
 def _export(path: Path) -> None:
