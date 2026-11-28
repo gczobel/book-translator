@@ -8,6 +8,8 @@ import pytest
 from lxml import etree
 
 from book_translator import main
+from book_translator.epub import open_epub
+from book_translator.xmlparse import fromstring
 from test_cli_draft import source_ids
 from test_cli_qa import CountingAdapter, set_target, tamper, translate
 
@@ -146,3 +148,23 @@ def test_export_with_a_jar_but_no_java_is_a_clear_error_not_a_traceback(
         main(["export", str(ws)])
 
     assert str(stop.value).startswith("error:")
+
+
+def test_the_package_description_is_exported_in_the_target_language(
+    ws: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_epubcheck(tmp_path, monkeypatch)
+    source = open_epub(ws / "source.epub")  # the source book's blurb is its first block's text
+    tree = etree.ElementTree(fromstring(source.read(source.opf_path)))
+    metadata = tree.getroot().find("{http://www.idpf.org/2007/opf}metadata")
+    assert metadata is not None
+    etree.SubElement(metadata, f"{DC}description").text = "One"
+    source.store(source.opf_path, tree)
+    source.write(ws / "source.epub")
+    set_target(ws, source_ids()[0], "Uno")
+
+    main(["export", str(ws)])
+
+    with zipfile.ZipFile(ws / "ws.es.epub") as z:
+        opf = etree.fromstring(z.read("OEBPS/content.opf"))
+    assert [e.text for e in opf.iter(f"{DC}description")] == ["Uno"]

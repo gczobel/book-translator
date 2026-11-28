@@ -3,7 +3,7 @@
 import sqlite3
 from dataclasses import dataclass
 
-from book_translator.export import _chapter_titles, _section_titles
+from book_translator.export import _chapter_titles, _description, _section_titles
 from book_translator.structure import Block, Book, Chapter, Part, Scene
 
 
@@ -67,3 +67,21 @@ def test_a_section_with_an_unfamiliar_label_is_left_alone() -> None:
     book = Book([], [], [Part("cover", "Portada original", [])], [])
 
     assert _section_titles(book, "es") == {}
+
+
+def test_the_package_description_is_the_translation_of_the_block_that_holds_it() -> None:
+    synopsis = Block("c#0", "paragraph", "An American family,  buys a castle.", 0)
+    chapter = Chapter("Cover", [Scene([synopsis])], [])
+    source = FakeSource(Book([chapter], [], [], []))
+    db = stored("Una familia americana compra un castillo.")
+
+    assert _description(db, source, "An American family, buys a castle.") == (  # type: ignore[arg-type]
+        "Una familia americana compra un castillo."
+    )
+
+
+def test_a_description_that_is_nowhere_in_the_book_is_left_alone() -> None:
+    source = one_chapter("Chapter I", "ChapterI")
+
+    assert _description(stored("x"), source, "A blurb from the publisher.") is None  # type: ignore[arg-type]
+    assert _description(stored("x"), source, "") is None  # type: ignore[arg-type]
